@@ -162,6 +162,21 @@
   .third-table tr.in td{color:var(--green)}
   .third-table tr.out td{color:var(--muted)}
 
+  /* Classement */
+  .lead-header{display:flex;align-items:center;gap:10px;flex-wrap:wrap;max-width:720px;margin:0 auto 14px;font-size:.85rem;color:var(--muted2)}
+  .lead-header .who{background:#8b5cf615;border:1px solid #8b5cf633;color:var(--purple);padding:6px 14px;border-radius:99px;font-weight:600}
+  .lead-header button{margin-left:auto;padding:8px 16px;border:none;border-radius:10px;font-weight:600;font-size:.8rem;cursor:pointer;background:var(--bg2);color:var(--muted2);border:1px solid var(--line);font-family:inherit}
+  .lead-header button:hover{color:var(--txt)}
+  .lead-card{background:linear-gradient(145deg,var(--card1),var(--card2));border:1px solid var(--line);border-radius:16px;padding:18px;max-width:720px;margin:0 auto 16px}
+  .lead-card h3{font-size:1rem;font-weight:800;color:var(--gold);margin-bottom:12px}
+  .lead-row{display:flex;align-items:center;gap:10px;padding:8px 12px;background:var(--bg2);border-radius:10px;font-size:.85rem;margin-bottom:6px;border:1px solid transparent}
+  .lead-row.me{border-color:#8b5cf655;background:#150f26}
+  .lead-row .rank{width:34px;text-align:center;font-weight:800;font-size:1rem}
+  .lead-row .pname{flex:1;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .lead-row .pname small{color:var(--muted);font-weight:400}
+  .lead-row .pts{font-weight:900;color:var(--purple);font-size:1.05rem;min-width:54px;text-align:right}
+  .lead-row .detail{font-size:.68rem;color:var(--muted)}
+
   /* Aide */
   .help-card{background:linear-gradient(145deg,var(--card1),var(--card2));border:1px solid var(--line);border-radius:16px;padding:22px;max-width:720px;margin:0 auto 16px}
   .help-card h3{font-size:1.05rem;font-weight:800;color:var(--gold);margin-bottom:10px}
@@ -227,6 +242,7 @@
   <span>Groupes terminés : <strong id="completedGroups">0</strong>/12</span>
   <span class="pred-chip">🔮 Pronostics : <strong id="predCountChip">0</strong>/104</span>
   <span class="pred-chip">⭐ Points : <strong id="predPointsChip">0</strong></span>
+  <span id="cloudChip">☁️ <strong>…</strong></span>
 </div>
 
 <div class="mode-toggle">
@@ -249,6 +265,7 @@
   <div class="tab" data-tab="cal">📅 Calendrier</div>
   <div class="tab" data-tab="ko">🏆 Phase finale</div>
   <div class="tab" data-tab="pred">🔮 Mes pronostics</div>
+  <div class="tab" data-tab="lead">🏅 Classement</div>
   <div class="tab" data-tab="bel">🇧🇪 Belgique</div>
   <div class="tab" data-tab="stats">📊 Stats</div>
   <div class="tab" data-tab="help">❓ Aide</div>
@@ -258,6 +275,7 @@
 <div id="view-cal" class="view"><div id="calContainer"></div></div>
 <div id="view-ko" class="view"><div id="koContainer"></div></div>
 <div id="view-pred" class="view"><div id="predContainer"></div></div>
+<div id="view-lead" class="view"><div id="leadContainer"></div></div>
 <div id="view-bel" class="view"><div id="belContainer"></div></div>
 <div id="view-stats" class="view"><div id="statsContainer"></div></div>
 <div id="view-help" class="view"><div id="helpContainer"></div></div>
@@ -864,6 +882,204 @@ function renderStatsView(){
 }
 
 // ═══════════════════════════════════════════
+// CONCOURS EN LIGNE (Supabase)
+// ═══════════════════════════════════════════
+// La clé "publishable" est faite pour être publique ; l'accès est limité
+// par les politiques RLS et le verrou anti-triche est appliqué côté serveur.
+
+const SB_URL='https://ydsdnfaeimonpkinysbn.supabase.co';
+const SB_KEY='sb_publishable_iksLlRr2OjeV-jBAWZH51w__Xn3uj-U';
+const PLAYER_KEY='wc2026_player';
+
+let player=null;
+try{player=JSON.parse(localStorage.getItem(PLAYER_KEY))||null}catch{}
+
+async function sb(path,opts={}){
+  const res=await fetch(SB_URL+'/rest/v1/'+path,{...opts,
+    headers:{'apikey':SB_KEY,'Authorization':'Bearer '+SB_KEY,'Content-Type':'application/json',...(opts.headers||{})}});
+  if(!res.ok)throw new Error((await res.text())||String(res.status));
+  const txt=await res.text();
+  return txt?JSON.parse(txt):null;
+}
+
+async function joinContest(){
+  const inp=document.getElementById('pseudoInput');
+  const name=(inp.value||'').trim();
+  if(name.length<2||name.length>20){showToast('⚠️ Pseudo entre 2 et 20 caractères');return}
+  try{
+    const rows=await sb('players',{method:'POST',headers:{'Prefer':'return=representation'},body:JSON.stringify({name})});
+    player={id:rows[0].id,name:rows[0].name};
+  }catch(err){
+    // pseudo déjà pris → proposer de le reprendre (retour depuis un autre appareil)
+    const existing=await sb('players?name=eq.'+encodeURIComponent(name)+'&select=id,name').catch(()=>null);
+    if(existing&&existing[0]){
+      if(!confirm(`Le pseudo « ${name} » existe déjà. C'est toi ? Tes pronostics seront récupérés.`))return;
+      player={id:existing[0].id,name:existing[0].name};
+    }else{showToast('❌ Connexion au concours impossible');return}
+  }
+  localStorage.setItem(PLAYER_KEY,JSON.stringify(player));
+  showToast(`👋 Bienvenue ${player.name} !`);
+  await syncNow();
+  renderAll();
+}
+
+function leaveContest(){
+  if(!confirm('Se déconnecter de ce pseudo sur cet appareil ?\n(les pronostics déjà envoyés restent dans le concours)'))return;
+  player=null;
+  localStorage.removeItem(PLAYER_KEY);
+  renderAll();
+}
+
+// envoi différé (700 ms) pour ne pas spammer pendant la saisie
+const _pending={};
+function queueCloudPush(key,store){
+  clearTimeout(_pending[store+key]);
+  _pending[store+key]=setTimeout(()=>cloudPush(key,store),700);
+}
+
+async function cloudPush(key,store){
+  const pair=store==='pred'?predicted(key):actual(key);
+  if(!hasBoth(pair))return;
+  try{
+    if(store==='pred'){
+      if(!player)return;
+      await sb('predictions?on_conflict=player_id,match_key',{method:'POST',
+        headers:{'Prefer':'resolution=merge-duplicates'},
+        body:JSON.stringify({player_id:player.id,match_key:key,s1:pair[0],s2:pair[1]})});
+    }else{
+      await sb('results?on_conflict=match_key',{method:'POST',
+        headers:{'Prefer':'resolution=merge-duplicates'},
+        body:JSON.stringify({match_key:key,s1:pair[0],s2:pair[1]})});
+    }
+    setCloudStatus(true);
+  }catch(err){
+    if(String(err).includes('verrouillé'))showToast('🔒 Match déjà joué : pronostic refusé');
+    else setCloudStatus(false);
+  }
+}
+
+async function syncNow(){
+  try{
+    // 1. résultats officiels du serveur → priorité sur le local
+    const results=await sb('results?select=match_key,s1,s2');
+    results.forEach(r=>{S[r.match_key]=String(r.s1);S[r.match_key+'b']=String(r.s2)});
+    if(player){
+      // 2. envoi de mes pronostics locaux (matchs non joués uniquement)
+      const played=new Set(results.map(r=>r.match_key));
+      const rows=[];
+      allMatchKeys().forEach(mk=>{
+        const p=predicted(mk.key);
+        if(hasBoth(p)&&!played.has(mk.key))rows.push({player_id:player.id,match_key:mk.key,s1:p[0],s2:p[1]});
+      });
+      if(rows.length){
+        await sb('predictions?on_conflict=player_id,match_key',{method:'POST',
+          headers:{'Prefer':'resolution=merge-duplicates'},body:JSON.stringify(rows)}).catch(()=>{});
+      }
+      // 3. récupération de mes pronostics serveur (autre appareil, même pseudo)
+      const mine=await sb('predictions?player_id=eq.'+player.id+'&select=match_key,s1,s2');
+      mine.forEach(p=>{S[PRED+p.match_key]=String(p.s1);S[PRED+p.match_key+'b']=String(p.s2)});
+    }
+    saveScores();
+    setCloudStatus(true);
+    return true;
+  }catch{setCloudStatus(false);return false}
+}
+
+function setCloudStatus(ok){
+  const el=document.getElementById('cloudChip');
+  if(!el)return;
+  el.innerHTML=ok===null?'☁️ <strong>…</strong>'
+    :ok?(player?`☁️ <strong>${player.name}</strong>`:'☁️ <strong>connecté</strong>')
+    :'⚠️ <strong>hors-ligne</strong>';
+}
+
+async function renderLeaderboard(){
+  const c=document.getElementById('leadContainer');
+  if(!player){
+    c.innerHTML=`<div class="help-card" style="text-align:center">
+      <h3>🏅 Rejoindre le concours de pronostics</h3>
+      <p>Choisis un pseudo pour comparer tes pronostics avec ceux des autres. Ceux déjà saisis sur cet appareil seront envoyés automatiquement.</p>
+      <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:12px">
+        <input id="pseudoInput" type="text" maxlength="20" placeholder="Ton pseudo" style="padding:10px 14px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--txt);font-family:inherit;font-size:16px" onkeydown="if(event.key==='Enter')joinContest()">
+        <button class="modal-btn" style="margin:0" onclick="joinContest()">⚽ Rejoindre</button>
+      </div></div>`;
+    return;
+  }
+  c.innerHTML='<div class="empty-state"><div class="big">⏳</div>Chargement du classement…</div>';
+  let players,preds,results;
+  try{
+    [players,preds,results]=await Promise.all([
+      sb('players?select=id,name'),
+      sb('predictions?select=player_id,match_key,s1,s2'),
+      sb('results?select=match_key,s1,s2')
+    ]);
+  }catch{
+    c.innerHTML='<div class="empty-state"><div class="big">⚠️</div>Impossible de joindre le serveur.<br>Vérifie ta connexion puis ré-ouvre cet onglet.</div>';
+    setCloudStatus(false);
+    return;
+  }
+  setCloudStatus(true);
+
+  const resMap={};
+  results.forEach(r=>resMap[r.match_key]=[r.s1,r.s2]);
+
+  const board=players.map(pl=>{
+    const mine=preds.filter(p=>p.player_id===pl.id);
+    let total=0,exact=0,good=0,bad=0,pending=0;
+    mine.forEach(p=>{
+      const a=resMap[p.match_key];
+      if(!a){pending++;return}
+      const pts=predPoints([p.s1,p.s2],a);
+      total+=pts;
+      if(pts===3)exact++; else if(pts===1)good++; else bad++;
+    });
+    return {id:pl.id,name:pl.name,total,exact,good,bad,pending,count:mine.length};
+  }).sort((a,b)=>b.total-a.total||b.exact-a.exact||a.name.localeCompare(b.name));
+
+  let html=`<div class="lead-header">
+    <span class="who">☁️ ${player.name}</span>
+    <button onclick="syncNow().then(()=>renderAll())">🔄 Actualiser</button>
+    <button onclick="leaveContest()">🚪 Changer de pseudo</button>
+  </div>`;
+
+  html+='<div class="lead-card"><h3>🏅 Classement général</h3>';
+  if(board.length===0)html+='<div class="empty-state" style="padding:20px">Personne n\'a encore rejoint le concours.</div>';
+  board.forEach((b,i)=>{
+    const medal=i===0?'🥇':i===1?'🥈':i===2?'🥉':(i+1);
+    html+=`<div class="lead-row${b.id===player.id?' me':''}">
+      <span class="rank">${medal}</span>
+      <span class="pname">${b.name} <small>· ${b.count} prono${b.count>1?'s':''}</small><br>
+        <span class="detail">✓ ${b.exact} exacts · ~ ${b.good} bons · ✗ ${b.bad} ratés · ⏳ ${b.pending}</span></span>
+      <span class="pts">${b.total} pts</span>
+    </div>`;
+  });
+  html+='</div>';
+
+  // détail des matchs joués : qui avait pronostiqué quoi
+  const playedKeys=allMatchKeys().filter(mk=>resMap[mk.key]);
+  const nameById={};players.forEach(pl=>nameById[pl.id]=pl.name);
+  if(playedKeys.length){
+    html+='<div class="lead-card"><h3>⚽ Pronostics sur les matchs joués</h3>';
+    playedKeys.forEach(mk=>{
+      const a=resMap[mk.key];
+      const matchPreds=preds.filter(p=>p.match_key===mk.key);
+      if(!matchPreds.length)return;
+      let pills='';
+      matchPreds
+        .map(p=>({name:nameById[p.player_id]||'?',s1:p.s1,s2:p.s2,pts:predPoints([p.s1,p.s2],a)}))
+        .sort((x,y)=>y.pts-x.pts||x.name.localeCompare(y.name))
+        .forEach(p=>{pills+=`<span class="pts-tag pts-${p.pts}">${p.name} : ${p.s1}–${p.s2} (+${p.pts})</span> `});
+      html+=`<div class="pred-row"><span class="match">${getFlag(mk.t1)} ${mk.t1} <strong>${a[0]}–${a[1]}</strong> ${mk.t2} ${getFlag(mk.t2)} <small style="color:var(--muted)">· ${mk.d}</small></span>${pills}</div>`;
+    });
+    html+='</div>';
+  }
+  // les pronostics des autres sur les matchs NON joués restent cachés (anti-copie)
+  html+='<p style="text-align:center;color:var(--muted);font-size:.78rem;padding:4px 0 30px">🙈 Les pronostics des autres ne sont visibles qu\'une fois le match joué — pas de copie possible !</p>';
+
+  c.innerHTML=html;
+}
+
+// ═══════════════════════════════════════════
 // AIDE
 // ═══════════════════════════════════════════
 
@@ -896,6 +1112,16 @@ function renderHelp(){
     </div>
     <div class="help-card"><h3>📝 Saisir les résultats</h3>${HELP_SAISIE}</div>
     <div class="help-card"><h3>🔮 Faire vos pronostics</h3>${HELP_PRONOS}</div>
+    <div class="help-card"><h3>🏅 Concours entre amis</h3>
+      <p>Dans l'onglet <strong>🏅 Classement</strong>, choisissez un <strong>pseudo</strong> pour rejoindre le concours : vos pronostics sont alors envoyés en ligne et comparés à ceux des autres.</p>
+      <ul>
+        <li>🏆 Classement général en direct : points, scores exacts, bons résultats.</li>
+        <li>🙈 Les pronostics des autres restent <strong>cachés</strong> tant que le match n'est pas joué — pas de copie possible.</li>
+        <li>🔒 Impossible de modifier un pronostic après le match, même en trichant : le serveur le refuse.</li>
+        <li>⚽ Les <strong>résultats officiels</strong> saisis par un membre du groupe sont partagés avec tout le monde automatiquement.</li>
+        <li>📲 Même pseudo sur un autre appareil = vos pronostics sont récupérés.</li>
+      </ul>
+    </div>
     <div class="help-card"><h3>💾 Important : sauvegarde locale</h3>${HELP_SAUVEGARDE}</div>
     <div class="help-card"><h3>📱 Téléphones & tablettes</h3>
       <p>L'appli fonctionne aussi sur <strong>Android, iPhone et iPad</strong> — l'affichage s'adapte automatiquement à l'écran.</p>
@@ -1067,6 +1293,7 @@ document.addEventListener('input',e=>{
   const fullKey=(store==='pred'?PRED:'')+key+(side==='b'?'b':'');
   if(inp.value==='')delete S[fullKey]; else S[fullKey]=inp.value;
   saveScores();
+  queueCloudPush(key,store==='pred'?'pred':'act'); // synchro concours en ligne
   renderAll(inp); // re-rendu avec restauration du focus
 });
 
@@ -1083,6 +1310,7 @@ function renderAll(focusedInput){
     case 'cal': renderCalendar(); break;
     case 'ko': renderKnockout(); break;
     case 'pred': renderPredictions(); break;
+    case 'lead': renderLeaderboard(); break;
     case 'bel': renderBelgium(); break;
     case 'stats': renderStatsView(); break;
     case 'help': renderHelp(); break;
@@ -1103,6 +1331,7 @@ function renderAll(focusedInput){
 // Init
 renderAll();
 if(!localStorage.getItem(WELCOME_KEY))showWelcome();
+syncNow().then(()=>renderAll()); // récupère résultats + pronostics du concours en ligne
 </script>
 </body>
 </html>
