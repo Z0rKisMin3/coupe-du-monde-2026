@@ -687,7 +687,7 @@ function matchRowHTML(mk, opts={}){
   const vals=inPred?[S[PRED+mk.key]??'',S[PRED+mk.key+'b']??'']:[S[mk.key]??'',S[mk.key+'b']??''];
   const filledCls=i=>vals[i]!==''?' filled':'';
   const predCls=inPred?' pred':'';
-  const locked=inPred&&hasBoth(a); // match joué → pronostic verrouillé
+  const locked=inPred&&(hasBoth(a)||matchStarted(mk.key)); // coup d'envoi passé → pronostic verrouillé
   const tbdLock=inPred&&mk.ko&&!(mk.q1&&mk.q2); // équipes inconnues → pas de prono
   // résultats : organisateur uniquement, et seulement après la fin du match
   const resLock=!inPred&&(!adminCode||!matchOver(mk.key));
@@ -711,6 +711,7 @@ function matchRowHTML(mk, opts={}){
     }
   }
   if(inPred&&hasBoth(a))tags+=`<span class="pts-tag pts-1" style="color:var(--muted2);background:var(--line2);border-color:var(--line)">Résultat : ${a[0]}–${a[1]}</span>`;
+  else if(inPred&&matchStarted(mk.key))tags+=`<span class="pred-tag" style="color:var(--muted);border-color:var(--line);background:var(--line2)">🔒 match commencé</span>`;
   if(!inPred&&!hasBoth(a)){
     if(!matchOver(mk.key))tags+=`<span class="pred-tag" style="color:var(--muted);border-color:var(--line);background:var(--line2)">⏳ à venir</span>`;
     else if(!adminCode)tags+=`<span class="pred-tag" style="color:var(--muted);border-color:var(--line);background:var(--line2)">🔑 résultat encodé par l'organisateur</span>`;
@@ -930,19 +931,28 @@ let player=null;
 try{player=JSON.parse(localStorage.getItem(PLAYER_KEY))||null}catch{}
 let adminCode=localStorage.getItem(ADMIN_KEY)||null;
 
-// Verrou temporel : un résultat ne peut être encodé qu'après la fin du match.
-// Source de vérité : table `matches` du serveur ; repli local si hors-ligne.
-let lockMap={};
-function localLockTs(d,h){
+// Verrous temporels — source de vérité : table `matches` du serveur ; repli local si hors-ligne.
+// kickoff = coup d'envoi (verrouille les PRONOSTICS) · lock = fin de match (déverrouille les RÉSULTATS)
+let lockMap={}, kickMap={};
+function localKickTs(d,h){
   const[dd,mm]=d.split('/'); const[hh,mi]=h.split(':');
-  // heures du calendrier en heure belge (UTC+2 en été) + 110 min de match
-  return Date.UTC(2026,parseInt(mm)-1,parseInt(dd),parseInt(hh)-2,parseInt(mi))+110*60000;
+  // heures du calendrier en heure belge (UTC+2 en été)
+  return Date.UTC(2026,parseInt(mm)-1,parseInt(dd),parseInt(hh)-2,parseInt(mi));
 }
-const LOCAL_LOCK={};
-GROUPS.forEach(g=>g.matches.forEach((m,mi)=>{LOCAL_LOCK[getGmId(g.id,mi)]=localLockTs(m.d,m.h)}));
+const LOCAL_LOCK={}, LOCAL_KICK={};
+GROUPS.forEach(g=>g.matches.forEach((m,mi)=>{
+  const k=getGmId(g.id,mi);
+  LOCAL_KICK[k]=localKickTs(m.d,m.h);
+  LOCAL_LOCK[k]=LOCAL_KICK[k]+110*60000;
+}));
 // phase finale : +40 min de marge (prolongations + tirs au but possibles)
-KO_MATCHES.forEach(round=>round.matchups.forEach(m=>{LOCAL_LOCK[getKoId(m.id)]=localLockTs(m.d,m.h)+40*60000}));
+KO_MATCHES.forEach(round=>round.matchups.forEach(m=>{
+  const k=getKoId(m.id);
+  LOCAL_KICK[k]=localKickTs(m.d,m.h);
+  LOCAL_LOCK[k]=LOCAL_KICK[k]+150*60000;
+}));
 function matchOver(key){return Date.now()>=(lockMap[key]||LOCAL_LOCK[key]||0)}
+function matchStarted(key){return Date.now()>=(kickMap[key]||LOCAL_KICK[key]||Infinity)}
 
 async function adminLogin(){
   if(adminCode){
@@ -1029,7 +1039,8 @@ async function cloudPush(key,store){
     setCloudStatus(true);
   }catch(err){
     const msg=String(err);
-    if(msg.includes('verrouillé'))showToast('🔒 Match déjà joué : pronostic refusé');
+    if(msg.includes('commencé'))showToast('🔒 Match commencé : pronostic refusé');
+    else if(msg.includes('verrouillé'))showToast('🔒 Match déjà joué : pronostic refusé');
     else if(msg.includes('pas encore joué'))showToast('⏳ Match pas encore terminé : résultat refusé');
     else if(msg.includes('invalide'))showToast('🔑 Code organisateur invalide');
     else setCloudStatus(false);
@@ -1040,8 +1051,11 @@ async function syncNow(){
   try{
     // 0. calendrier des verrous (une seule fois)
     if(!Object.keys(lockMap).length){
-      const ms=await sb('matches?select=match_key,lock_until').catch(()=>null);
-      if(ms)ms.forEach(m=>{lockMap[m.match_key]=new Date(m.lock_until).getTime()});
+      const ms=await sb('matches?select=match_key,lock_until,kickoff').catch(()=>null);
+      if(ms)ms.forEach(m=>{
+        lockMap[m.match_key]=new Date(m.lock_until).getTime();
+        kickMap[m.match_key]=new Date(m.kickoff).getTime();
+      });
     }
     // 1. résultats officiels : le serveur est la seule source de vérité
     //    (efface aussi les scores locaux qui n'existent pas côté serveur)
@@ -1057,7 +1071,7 @@ async function syncNow(){
       const rows=[];
       allMatchKeys().forEach(mk=>{
         const p=predicted(mk.key);
-        if(hasBoth(p)&&!played.has(mk.key))rows.push({player_id:player.id,match_key:mk.key,s1:p[0],s2:p[1]});
+        if(hasBoth(p)&&!played.has(mk.key)&&!matchStarted(mk.key))rows.push({player_id:player.id,match_key:mk.key,s1:p[0],s2:p[1]});
       });
       if(rows.length){
         await sb('predictions?on_conflict=player_id,match_key',{method:'POST',
@@ -1182,7 +1196,7 @@ const HELP_PRONOS=`
     <li>👍 Bon vainqueur ou match nul = <strong>1 point</strong></li>
     <li>❌ Raté = 0 point</li>
   </ul>
-  <p>Dès que le résultat réel est encodé, votre pronostic est <strong>verrouillé 🔒</strong> — pas de triche ! Retrouvez votre total de points dans l'onglet <strong>🔮 Mes pronostics</strong>.</p>`;
+  <p>Votre pronostic est <strong>verrouillé 🔒 dès le coup d'envoi du match</strong> — impossible de le modifier en cours de match, pas de triche ! Retrouvez votre total de points dans l'onglet <strong>🔮 Mes pronostics</strong>.</p>`;
 
 const HELP_SAUVEGARDE=`
   <p>Vos scores et pronostics sont enregistrés <strong>dans votre navigateur, sur votre ordinateur</strong> :</p>
@@ -1206,7 +1220,7 @@ function renderHelp(){
       <ul>
         <li>🏆 Classement général en direct : points, scores exacts, bons résultats.</li>
         <li>🙈 Les pronostics des autres restent <strong>cachés</strong> tant que le match n'est pas joué — pas de copie possible.</li>
-        <li>🔒 Impossible de modifier un pronostic après le match, même en trichant : le serveur le refuse.</li>
+        <li>🔒 Impossible de modifier un pronostic dès le coup d'envoi du match, même en trichant : le serveur le refuse.</li>
         <li>⚽ Les <strong>résultats officiels</strong> sont encodés par l'organisateur et partagés avec tout le monde automatiquement.</li>
         <li>📲 Même pseudo sur un autre appareil = vos pronostics sont récupérés.</li>
       </ul>
@@ -1231,7 +1245,7 @@ function showWelcome(){
   document.getElementById('welcomeBody').innerHTML=`
     <p>Une petite appli pour suivre la Coupe du Monde 2026 et faire vos pronostics ⚽</p>
     <p><strong>📝 Résultats</strong> — encodés par l'organisateur après chaque match, ils arrivent automatiquement : classements et tableau final se calculent tout seuls.</p>
-    <p><strong style="color:var(--purple)">🔮 Pronostics</strong> — prédisez les scores avant les matchs : exact = 3 pts, bon résultat = 1 pt. Verrouillé dès que le match est joué 🔒</p>
+    <p><strong style="color:var(--purple)">🔮 Pronostics</strong> — prédisez les scores avant les matchs : exact = 3 pts, bon résultat = 1 pt. Verrouillé dès le coup d'envoi 🔒</p>
     <div class="warn">💾 Tout est sauvegardé <strong>localement dans ce navigateur, sur cet ordinateur</strong> — vos données ne se transfèrent pas d'un PC à l'autre (utilisez Exporter / Importer pour ça). Détails dans l'onglet <strong>❓ Aide</strong>.</div>`;
   document.getElementById('welcomeModal').classList.add('show');
 }
@@ -1350,7 +1364,7 @@ function setMode(m){
   document.getElementById('modePrd').classList.toggle('active',m==='prd');
   const hint=document.getElementById('modeHint');
   if(m==='prd'){
-    hint.textContent='🔮 Mode pronostics : saisissez vos prédictions avant les matchs (score exact = 3 pts, bon résultat = 1 pt). Verrouillé dès que le score réel est connu.';
+    hint.textContent='🔮 Mode pronostics : saisissez vos prédictions avant les matchs (score exact = 3 pts, bon résultat = 1 pt). Verrouillé dès le coup d\'envoi.';
     hint.classList.add('prd');
   } else {
     hint.textContent=adminCode
