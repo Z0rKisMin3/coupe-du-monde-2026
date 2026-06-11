@@ -433,7 +433,7 @@ const KO_MATCHES = [
     {id:'R32_15', t1:{src:'1K'}, t2:{src:'3DEIJL'}, d:'04/07', h:'03:30'}
   ]},
   { r:'8es de Finale', matchups:[
-    {id:'R16_1', t1:{src:'WR32_2'},  t2:{src:'WR32_5'},  d:'04/07', h:'19:00'},
+    {id:'R16_1', t1:{src:'WR32_2'},  t2:{src:'WR32_5'},  d:'04/07', h:'23:00'},
     {id:'R16_2', t1:{src:'WR32_1'},  t2:{src:'WR32_3'},  d:'04/07', h:'19:00'},
     {id:'R16_3', t1:{src:'WR32_4'},  t2:{src:'WR32_6'},  d:'05/07', h:'22:00'},
     {id:'R16_4', t1:{src:'WR32_7'},  t2:{src:'WR32_8'},  d:'06/07', h:'02:00'},
@@ -507,11 +507,35 @@ function calcGroupStandings(g){
     }
   });
   Object.values(tbl).forEach(t=>{t.gd=t.gf-t.ga});
-  return g.teams.slice().sort((x,y)=>{
+  const order=g.teams.slice().sort((x,y)=>{
     if(tbl[y].pts!==tbl[x].pts)return tbl[y].pts-tbl[x].pts;
     if(tbl[y].gd!==tbl[x].gd)return tbl[y].gd-tbl[x].gd;
     return tbl[y].gf-tbl[x].gf;
-  }).map((t,i)=>({team:t,pos:i+1,...tbl[t]}));
+  });
+  // Critère FIFA suivant : confrontation directe entre équipes à égalité parfaite (pts + diff + buts)
+  const same=(a,b)=>tbl[a].pts===tbl[b].pts&&tbl[a].gd===tbl[b].gd&&tbl[a].gf===tbl[b].gf;
+  const final=[];
+  let i=0;
+  while(i<order.length){
+    let j=i+1;
+    while(j<order.length&&same(order[i],order[j]))j++;
+    if(j-i>1){
+      const subset=order.slice(i,j);
+      const mini={};subset.forEach(t=>mini[t]={pts:0,gd:0,gf:0});
+      g.matches.forEach((m,mi2)=>{
+        if(!(m.t1 in mini)||!(m.t2 in mini))return;
+        const [s1,s2]=actual(getGmId(g.id,mi2));
+        if(s1===null||s2===null)return;
+        mini[m.t1].gf+=s1;mini[m.t1].gd+=s1-s2;
+        mini[m.t2].gf+=s2;mini[m.t2].gd+=s2-s1;
+        if(s1>s2)mini[m.t1].pts+=3;else if(s2>s1)mini[m.t2].pts+=3;else{mini[m.t1].pts++;mini[m.t2].pts++}
+      });
+      subset.sort((a,b)=>mini[b].pts-mini[a].pts||mini[b].gd-mini[a].gd||mini[b].gf-mini[a].gf);
+      final.push(...subset);
+    }else final.push(order[i]);
+    i=j;
+  }
+  return final.map((t,idx)=>({team:t,pos:idx+1,...tbl[t]}));
 }
 
 function getAllThirds(){
