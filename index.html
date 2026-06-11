@@ -57,6 +57,8 @@
   .btn-reset{background:#7f1d1d;color:#fecaca}
   .btn-export{background:#1e3a5f;color:#93c5fd}
   .btn-import{background:#14532d;color:#86efac}
+  .btn-admin{background:#3b2f0a;color:#fcd34d}
+  .btn-admin.on{background:#14532d;color:#86efac}
 
   /* Tabs */
   .tabs{display:flex;gap:6px;flex-wrap:wrap;justify-content:center;margin-bottom:22px;position:sticky;top:0;z-index:50;background:rgba(10,14,26,.92);backdrop-filter:blur(8px);padding:10px 0;border-bottom:1px solid var(--line)}
@@ -257,6 +259,7 @@
   <button class="btn-export" onclick="exportJSON()">📥 Exporter</button>
   <button class="btn-import" onclick="importJSON()">📤 Importer</button>
   <button class="btn-reset" onclick="resetAll()">🗑️ Tout effacer</button>
+  <button class="btn-admin" id="adminBtn" onclick="adminLogin()">🔑 Organisateur</button>
   <input type="file" id="importFile" accept=".json" style="display:none">
 </div>
 
@@ -656,7 +659,9 @@ function matchRowHTML(mk, opts={}){
   const predCls=inPred?' pred':'';
   const locked=inPred&&hasBoth(a); // match joué → pronostic verrouillé
   const tbdLock=inPred&&mk.ko&&!(mk.q1&&mk.q2); // équipes inconnues → pas de prono
-  const dis=(locked||tbdLock)?' disabled':'';
+  // résultats : organisateur uniquement, et seulement après la fin du match
+  const resLock=!inPred&&(!adminCode||!matchOver(mk.key));
+  const dis=(locked||tbdLock||resLock)?' disabled':'';
 
   const t1Cls=mk.ko?(mk.q1?'team qualified':'team tbd'):'team';
   const t2Cls=mk.ko?(mk.q2?'team qualified':'team tbd'):'team';
@@ -676,6 +681,10 @@ function matchRowHTML(mk, opts={}){
     }
   }
   if(inPred&&hasBoth(a))tags+=`<span class="pts-tag pts-1" style="color:var(--muted2);background:var(--line2);border-color:var(--line)">Résultat : ${a[0]}–${a[1]}</span>`;
+  if(!inPred&&!hasBoth(a)){
+    if(!matchOver(mk.key))tags+=`<span class="pred-tag" style="color:var(--muted);border-color:var(--line);background:var(--line2)">⏳ à venir</span>`;
+    else if(!adminCode)tags+=`<span class="pred-tag" style="color:var(--muted);border-color:var(--line);background:var(--line2)">🔑 résultat encodé par l'organisateur</span>`;
+  }
   const phase=opts.showPhase?`<span class="cal-phase">${mk.phase}</span>`:'';
 
   return `
@@ -890,9 +899,48 @@ function renderStatsView(){
 const SB_URL='https://ydsdnfaeimonpkinysbn.supabase.co';
 const SB_KEY='sb_publishable_iksLlRr2OjeV-jBAWZH51w__Xn3uj-U';
 const PLAYER_KEY='wc2026_player';
+const ADMIN_KEY='wc2026_admin';
 
 let player=null;
 try{player=JSON.parse(localStorage.getItem(PLAYER_KEY))||null}catch{}
+let adminCode=localStorage.getItem(ADMIN_KEY)||null;
+
+// Verrou temporel : un résultat ne peut être encodé qu'après la fin du match.
+// Source de vérité : table `matches` du serveur ; repli local si hors-ligne.
+let lockMap={};
+function localLockTs(d,h){
+  const[dd,mm]=d.split('/'); const[hh,mi]=h.split(':');
+  // heures du calendrier en heure belge (UTC+2 en été) + 110 min de match
+  return Date.UTC(2026,parseInt(mm)-1,parseInt(dd),parseInt(hh)-2,parseInt(mi))+110*60000;
+}
+const LOCAL_LOCK={};
+GROUPS.forEach(g=>g.matches.forEach((m,mi)=>{LOCAL_LOCK[getGmId(g.id,mi)]=localLockTs(m.d,m.h)}));
+KO_MATCHES.forEach(day=>day.matchups.forEach(m=>{LOCAL_LOCK[getKoId(m.id)]=localLockTs(day.d,'18:00')}));
+function matchOver(key){return Date.now()>=(lockMap[key]||LOCAL_LOCK[key]||0)}
+
+async function adminLogin(){
+  if(adminCode){
+    if(confirm('Quitter le mode organisateur sur cet appareil ?')){
+      adminCode=null;localStorage.removeItem(ADMIN_KEY);updateAdminBtn();setMode('prd');
+    }
+    return;
+  }
+  const code=prompt('🔑 Code organisateur :');
+  if(!code)return;
+  try{
+    const ok=await sb('rpc/check_admin',{method:'POST',body:JSON.stringify({code})});
+    if(ok===true){
+      adminCode=code;localStorage.setItem(ADMIN_KEY,code);
+      updateAdminBtn();showToast('🔑 Mode organisateur activé');setMode('res');
+    }else showToast('❌ Code incorrect');
+  }catch{showToast('❌ Vérification impossible (hors-ligne ?)')}
+}
+function updateAdminBtn(){
+  const b=document.getElementById('adminBtn');
+  if(!b)return;
+  b.textContent=adminCode?'🔑 Organisateur ✓':'🔑 Organisateur';
+  b.classList.toggle('on',!!adminCode);
+}
 
 async function sb(path,opts={}){
   const res=await fetch(SB_URL+'/rest/v1/'+path,{...opts,
@@ -947,21 +995,35 @@ async function cloudPush(key,store){
         headers:{'Prefer':'resolution=merge-duplicates'},
         body:JSON.stringify({player_id:player.id,match_key:key,s1:pair[0],s2:pair[1]})});
     }else{
+      if(!adminCode)return; // seuls les résultats de l'organisateur partent au serveur
       await sb('results?on_conflict=match_key',{method:'POST',
         headers:{'Prefer':'resolution=merge-duplicates'},
-        body:JSON.stringify({match_key:key,s1:pair[0],s2:pair[1]})});
+        body:JSON.stringify({match_key:key,s1:pair[0],s2:pair[1],code:adminCode})});
     }
     setCloudStatus(true);
   }catch(err){
-    if(String(err).includes('verrouillé'))showToast('🔒 Match déjà joué : pronostic refusé');
+    const msg=String(err);
+    if(msg.includes('verrouillé'))showToast('🔒 Match déjà joué : pronostic refusé');
+    else if(msg.includes('pas encore joué'))showToast('⏳ Match pas encore terminé : résultat refusé');
+    else if(msg.includes('invalide'))showToast('🔑 Code organisateur invalide');
     else setCloudStatus(false);
   }
 }
 
 async function syncNow(){
   try{
-    // 1. résultats officiels du serveur → priorité sur le local
+    // 0. calendrier des verrous (une seule fois)
+    if(!Object.keys(lockMap).length){
+      const ms=await sb('matches?select=match_key,lock_until').catch(()=>null);
+      if(ms)ms.forEach(m=>{lockMap[m.match_key]=new Date(m.lock_until).getTime()});
+    }
+    // 1. résultats officiels : le serveur est la seule source de vérité
+    //    (efface aussi les scores locaux qui n'existent pas côté serveur)
     const results=await sb('results?select=match_key,s1,s2');
+    const serverKeys=new Set(results.map(r=>r.match_key));
+    allMatchKeys().forEach(mk=>{
+      if(!serverKeys.has(mk.key)){delete S[mk.key];delete S[mk.key+'b']}
+    });
     results.forEach(r=>{S[r.match_key]=String(r.s1);S[r.match_key+'b']=String(r.s2)});
     if(player){
       // 2. envoi de mes pronostics locaux (matchs non joués uniquement)
@@ -1084,7 +1146,8 @@ async function renderLeaderboard(){
 // ═══════════════════════════════════════════
 
 const HELP_SAISIE=`
-  <p>Entrez les scores des matchs joués dans les onglets <strong>📋 Groupes</strong>, <strong>📅 Calendrier</strong> ou <strong>🏆 Phase finale</strong>. Les classements, les qualifiés et le tableau final se calculent <strong>automatiquement</strong>.</p>`;
+  <p>Les <strong>résultats officiels</strong> sont encodés par l'organisateur (🔑) après chaque match et arrivent <strong>automatiquement</strong> chez tout le monde — vous n'avez rien à faire. Les classements, les qualifiés et le tableau final se calculent tout seuls.</p>
+  <p>Un résultat ne peut pas être encodé avant la fin du match : le serveur le refuse.</p>`;
 
 const HELP_PRONOS=`
   <p>Cliquez sur le bouton <strong style="color:var(--purple)">🔮 Pronostics</strong> en haut de page, puis saisissez vos prédictions <strong>avant</strong> que les matchs soient joués (champs violets).</p>
@@ -1118,7 +1181,7 @@ function renderHelp(){
         <li>🏆 Classement général en direct : points, scores exacts, bons résultats.</li>
         <li>🙈 Les pronostics des autres restent <strong>cachés</strong> tant que le match n'est pas joué — pas de copie possible.</li>
         <li>🔒 Impossible de modifier un pronostic après le match, même en trichant : le serveur le refuse.</li>
-        <li>⚽ Les <strong>résultats officiels</strong> saisis par un membre du groupe sont partagés avec tout le monde automatiquement.</li>
+        <li>⚽ Les <strong>résultats officiels</strong> sont encodés par l'organisateur et partagés avec tout le monde automatiquement.</li>
         <li>📲 Même pseudo sur un autre appareil = vos pronostics sont récupérés.</li>
       </ul>
     </div>
@@ -1141,7 +1204,7 @@ const WELCOME_KEY='wc2026_welcome_seen';
 function showWelcome(){
   document.getElementById('welcomeBody').innerHTML=`
     <p>Une petite appli pour suivre la Coupe du Monde 2026 et faire vos pronostics ⚽</p>
-    <p><strong>📝 Résultats</strong> — encodez les scores, les classements et le tableau final se calculent tout seuls.</p>
+    <p><strong>📝 Résultats</strong> — encodés par l'organisateur après chaque match, ils arrivent automatiquement : classements et tableau final se calculent tout seuls.</p>
     <p><strong style="color:var(--purple)">🔮 Pronostics</strong> — prédisez les scores avant les matchs : exact = 3 pts, bon résultat = 1 pt. Verrouillé dès que le match est joué 🔒</p>
     <div class="warn">💾 Tout est sauvegardé <strong>localement dans ce navigateur, sur cet ordinateur</strong> — vos données ne se transfèrent pas d'un PC à l'autre (utilisez Exporter / Importer pour ça). Détails dans l'onglet <strong>❓ Aide</strong>.</div>`;
   document.getElementById('welcomeModal').classList.add('show');
@@ -1264,7 +1327,9 @@ function setMode(m){
     hint.textContent='🔮 Mode pronostics : saisissez vos prédictions avant les matchs (score exact = 3 pts, bon résultat = 1 pt). Verrouillé dès que le score réel est connu.';
     hint.classList.add('prd');
   } else {
-    hint.textContent='Saisissez les scores réels des matchs joués.';
+    hint.textContent=adminCode
+      ?'🔑 Mode organisateur : saisissez les scores réels des matchs terminés (refusés avant la fin du match).'
+      :'Les résultats officiels sont encodés par l\'organisateur et se synchronisent ici automatiquement.';
     hint.classList.remove('prd');
   }
   renderAll();
@@ -1329,9 +1394,13 @@ function renderAll(focusedInput){
 }
 
 // Init
-renderAll();
+updateAdminBtn();
+setMode(adminCode?'res':'prd'); // les non-organisateurs arrivent directement en mode pronostics
 if(!localStorage.getItem(WELCOME_KEY))showWelcome();
 syncNow().then(()=>renderAll()); // récupère résultats + pronostics du concours en ligne
+// resynchronisation : toutes les 5 min et au retour sur l'onglet/l'appli
+setInterval(()=>{if(document.visibilityState==='visible')syncNow().then(()=>renderAll())},5*60*1000);
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')syncNow().then(()=>renderAll())});
 </script>
 </body>
 </html>
