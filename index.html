@@ -34,6 +34,13 @@
   h1{font-size:2.4rem;font-weight:900;text-align:center;padding:24px 0 6px;background:linear-gradient(135deg,#f59e0b,#f97316,#ef4444);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
   .subtitle{text-align:center;color:var(--muted);font-size:.95rem;margin-bottom:10px}
   .subtitle span{color:var(--gold)}
+  /* drapeaux en filigrane en haut de page 🇲🇽 🇺🇸 🇨🇦 */
+  .flag-wm{position:fixed;top:20px;width:215px;height:129px;z-index:-1;opacity:.14;border-radius:10px;background-size:100% 100%;pointer-events:none;box-shadow:0 10px 40px #00000055}
+  .flag-mx{left:2.5%;transform:rotate(-7deg);background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 300 180'%3E%3Crect width='100' height='180' fill='%23006847'/%3E%3Crect x='100' width='100' height='180' fill='%23ffffff'/%3E%3Crect x='200' width='100' height='180' fill='%23ce1126'/%3E%3Cellipse cx='150' cy='94' rx='21' ry='14' fill='%23806030'/%3E%3Ccircle cx='163' cy='82' r='6' fill='%23806030'/%3E%3Cpath d='M128,108 q22,14 44,0' stroke='%236b8f3e' stroke-width='5' fill='none'/%3E%3C/svg%3E")}
+  .flag-us{left:50%;margin-left:-107px;top:10px;transform:rotate(1.5deg);background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 300 180'%3E%3Crect width='300' height='180' fill='%23b22234'/%3E%3Cg fill='%23ffffff'%3E%3Crect y='13.8' width='300' height='13.8'/%3E%3Crect y='41.5' width='300' height='13.8'/%3E%3Crect y='69.2' width='300' height='13.8'/%3E%3Crect y='96.9' width='300' height='13.8'/%3E%3Crect y='124.6' width='300' height='13.8'/%3E%3Crect y='152.3' width='300' height='13.8'/%3E%3C/g%3E%3Crect width='120' height='96.9' fill='%233c3b6e'/%3E%3Cg fill='%23ffffff'%3E%3Ccircle cx='15' cy='14' r='4'/%3E%3Ccircle cx='45' cy='14' r='4'/%3E%3Ccircle cx='75' cy='14' r='4'/%3E%3Ccircle cx='105' cy='14' r='4'/%3E%3Ccircle cx='30' cy='32' r='4'/%3E%3Ccircle cx='60' cy='32' r='4'/%3E%3Ccircle cx='90' cy='32' r='4'/%3E%3Ccircle cx='15' cy='50' r='4'/%3E%3Ccircle cx='45' cy='50' r='4'/%3E%3Ccircle cx='75' cy='50' r='4'/%3E%3Ccircle cx='105' cy='50' r='4'/%3E%3Ccircle cx='30' cy='68' r='4'/%3E%3Ccircle cx='60' cy='68' r='4'/%3E%3Ccircle cx='90' cy='68' r='4'/%3E%3Ccircle cx='15' cy='85' r='4'/%3E%3Ccircle cx='45' cy='85' r='4'/%3E%3Ccircle cx='75' cy='85' r='4'/%3E%3Ccircle cx='105' cy='85' r='4'/%3E%3C/g%3E%3C/svg%3E")}
+  .flag-ca{right:2.5%;transform:rotate(7deg);background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 300 150'%3E%3Crect width='300' height='150' fill='%23ffffff'/%3E%3Crect width='75' height='150' fill='%23d52b1e'/%3E%3Crect x='225' width='75' height='150' fill='%23d52b1e'/%3E%3Cpath fill='%23d52b1e' d='M150,30 l8,16 14,-6 -4,15 16,3 -11,11 12,11 -16,2 3,15 -14,-5 -5,18 -5,-18 -14,5 3,-15 -16,-2 12,-11 -11,-11 16,-3 -4,-15 14,6 z'/%3E%3Crect x='148' y='105' width='4' height='14' fill='%23d52b1e'/%3E%3C/svg%3E")}
+  @media(max-width:900px){.flag-wm{width:120px;height:72px;top:12px;opacity:.13}.flag-us{margin-left:-60px;top:6px}}
+
   /* liseré aux couleurs des drapeaux Mexique · USA · Canada */
   .flag-bar{height:4px;max-width:430px;margin:0 auto 18px;border-radius:99px;background:linear-gradient(90deg,
     #006847 0 10.5%, #f4f4f4 10.5% 21%, #ce1126 21% 31.5%, transparent 31.5% 34.5%,
@@ -245,6 +252,9 @@
 </style>
 </head>
 <body>
+<div class="flag-wm flag-mx" aria-hidden="true"></div>
+<div class="flag-wm flag-us" aria-hidden="true"></div>
+<div class="flag-wm flag-ca" aria-hidden="true"></div>
 <div class="container">
 <h1>🏆 Coupe du Monde 2026</h1>
 <p class="subtitle">🇲🇽 🇺🇸 🇨🇦 · 11 Juin → 19 Juillet · <span>104 matchs</span> · 48 équipes</p>
