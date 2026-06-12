@@ -94,8 +94,13 @@
   .btn-admin{background:#3b2f0a;color:#fcd34d}
   .btn-admin.on{background:#14532d;color:#86efac}
 
+  /* Barre collante : matchs en cours + onglets */
+  .sticky-top{position:sticky;top:0;z-index:50;background:rgba(10,14,26,.92);backdrop-filter:blur(8px);border-bottom:1px solid var(--line);margin-bottom:22px}
+  #liveBar{display:none;padding:8px 12px;text-align:center;font-size:.82rem;font-weight:600;color:var(--txt);background:#ef44440e;border-bottom:1px solid #ef444433;line-height:1.7}
+  #liveBar .live-tag{margin-right:8px;vertical-align:1px}
+
   /* Tabs */
-  .tabs{display:flex;gap:6px;flex-wrap:wrap;justify-content:center;margin-bottom:22px;position:sticky;top:0;z-index:50;background:rgba(10,14,26,.92);backdrop-filter:blur(8px);padding:10px 0;border-bottom:1px solid var(--line)}
+  .tabs{display:flex;gap:6px;flex-wrap:wrap;justify-content:center;padding:10px 0}
   .tab{padding:9px 18px;border-radius:99px;cursor:pointer;font-weight:600;font-size:.85rem;background:var(--bg2);color:var(--muted);transition:.2s;border:1px solid var(--line);user-select:none}
   .tab:hover{background:#252b3d;color:var(--txt)}
   .tab.active{background:linear-gradient(135deg,#f59e0b22,#f9731622);color:var(--gold);border-color:#f59e0b66}
@@ -305,6 +310,8 @@
   <input type="file" id="importFile" accept=".json" style="display:none">
 </div>
 
+<div class="sticky-top">
+<div id="liveBar"></div>
 <div class="tabs" id="tabs">
   <div class="tab active" data-tab="groups">📋 Groupes</div>
   <div class="tab" data-tab="cal">📅 Calendrier</div>
@@ -314,6 +321,7 @@
   <div class="tab" data-tab="bel">🇧🇪 Belgique</div>
   <div class="tab" data-tab="stats">📊 Stats</div>
   <div class="tab" data-tab="help">❓ Aide</div>
+</div>
 </div>
 
 <div id="view-groups" class="view visible"><div class="groups-grid" id="groupsContainer"></div></div>
@@ -1371,6 +1379,24 @@ function closeWelcome(){
 }
 
 // ═══════════════════════════════════════════
+// BANDEAU « MATCH EN COURS » (barre collante)
+// ═══════════════════════════════════════════
+
+function renderLiveBar(){
+  const el=document.getElementById('liveBar');
+  if(!el)return;
+  const live=allMatchKeys().filter(mk=>
+    !hasBoth(actual(mk.key))
+    &&matchStarted(mk.key)&&!matchOver(mk.key)
+    &&!(mk.ko&&!(mk.q1&&mk.q2)) // phase finale : équipes connues uniquement
+  );
+  if(!live.length){el.style.display='none';return}
+  el.style.display='block';
+  el.innerHTML=`<span class="live-tag">🔴 EN COURS</span>`+
+    live.map(mk=>`${getFlag(mk.t1)} <strong>${mk.t1}</strong> – <strong>${mk.t2}</strong> ${getFlag(mk.t2)}`).join('&nbsp;&nbsp;·&nbsp;&nbsp;');
+}
+
+// ═══════════════════════════════════════════
 // BARRE DE STATS GLOBALE
 // ═══════════════════════════════════════════
 
@@ -1529,6 +1555,7 @@ function renderAll(focusedInput){
 
   // ne pas écraser l'éditeur d'annonce s'il est ouvert
   if(!document.getElementById('announceInput'))renderAnnounce();
+  renderLiveBar();
 
   switch(currentTab){
     case 'groups': renderGroups(); break;
