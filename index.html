@@ -47,6 +47,19 @@
     #3c3b6e 34.5% 45%, #f4f4f4 45% 55.5%, #b22234 55.5% 66%, transparent 66% 69%,
     #d52b1e 69% 79.5%, #f4f4f4 79.5% 90%, #d52b1e 90% 100%)}
 
+  /* Annonces de l'organisateur */
+  .announce{max-width:720px;margin:0 auto 16px;background:linear-gradient(135deg,#f59e0b14,#f9731614);border:1px solid #f59e0b55;border-radius:14px;padding:12px 18px;font-size:.9rem;line-height:1.55}
+  .announce-text{color:#fcd34d}
+  .announce-text.empty{color:var(--muted);font-style:italic}
+  .announce-edit{display:block;margin:8px auto 0;padding:6px 16px;border:1px solid #f59e0b66;border-radius:8px;background:transparent;color:var(--gold);font-weight:600;font-size:.78rem;cursor:pointer;font-family:inherit}
+  .announce-edit:hover{background:#f59e0b22}
+  .announce textarea{width:100%;padding:10px;border:1px solid #f59e0b66;border-radius:8px;background:var(--bg);color:var(--txt);font-family:inherit;font-size:16px;resize:vertical;outline:none}
+  .announce-actions{display:flex;gap:8px;justify-content:center;margin-top:8px;flex-wrap:wrap}
+  .announce-actions button{padding:7px 16px;border:none;border-radius:8px;font-weight:600;font-size:.8rem;cursor:pointer;font-family:inherit}
+  .announce-actions .pub{background:linear-gradient(135deg,var(--gold),var(--orange));color:#0a0e1a}
+  .announce-actions .del{background:#7f1d1d;color:#fecaca}
+  .announce-actions .cancel{background:var(--bg2);color:var(--muted2);border:1px solid var(--line)}
+
   /* Progress */
   .progress-wrap{max-width:520px;margin:0 auto 14px;text-align:center}
   .progress-bar{height:8px;background:var(--line2);border-radius:99px;overflow:hidden}
@@ -259,6 +272,8 @@
 <h1>🏆 Coupe du Monde 2026</h1>
 <p class="subtitle">🇲🇽 🇺🇸 🇨🇦 · 11 Juin → 19 Juillet · <span>104 matchs</span> · 48 équipes</p>
 <div class="flag-bar" title="Mexique · États-Unis · Canada"></div>
+
+<div id="announceBar" class="announce" style="display:none"></div>
 
 <div class="progress-wrap">
   <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
@@ -1004,6 +1019,50 @@ function updateAdminBtn(){
   b.classList.toggle('on',!!adminCode);
 }
 
+// ── Annonces de l'organisateur ──
+let announcement={body:''};
+
+function escHTML(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
+
+function renderAnnounce(){
+  const el=document.getElementById('announceBar');
+  if(!el)return;
+  const has=announcement.body&&announcement.body.trim();
+  if(!has&&!adminCode){el.style.display='none';return}
+  el.style.display='';
+  let html=has
+    ?`<div class="announce-text">📣 ${escHTML(announcement.body).replace(/\n/g,'<br>')}</div>`
+    :`<div class="announce-text empty">📣 Aucune annonce pour le moment.</div>`;
+  if(adminCode)html+=`<button class="announce-edit" onclick="editAnnounce()">✏️ ${has?'Modifier l\'annonce':'Rédiger une annonce'}</button>`;
+  el.innerHTML=html;
+}
+
+function editAnnounce(){
+  const el=document.getElementById('announceBar');
+  el.innerHTML=`<textarea id="announceInput" maxlength="500" rows="3" placeholder="Votre annonce ou rappel pour tous les joueurs… (500 caractères max)"></textarea>
+    <div class="announce-actions">
+      <button class="pub" onclick="saveAnnounce()">📣 Publier</button>
+      <button class="del" onclick="saveAnnounce(true)">🗑️ Effacer l'annonce</button>
+      <button class="cancel" onclick="renderAnnounce()">Annuler</button>
+    </div>`;
+  const ta=document.getElementById('announceInput');
+  ta.value=announcement.body||'';
+  ta.focus();
+}
+
+async function saveAnnounce(clear){
+  if(!adminCode)return;
+  const body=clear?'':(document.getElementById('announceInput')?.value||'').trim();
+  try{
+    await sb('announcements?id=eq.main',{method:'PATCH',body:JSON.stringify({body,code:adminCode})});
+    announcement.body=body;
+    showToast(body?'📣 Annonce publiée pour tous les joueurs':'🗑️ Annonce effacée');
+  }catch(err){
+    showToast(String(err).includes('invalide')?'🔑 Code organisateur invalide':'❌ Publication impossible (hors-ligne ?)');
+  }
+  renderAnnounce();
+}
+
 async function sb(path,opts={}){
   const res=await fetch(SB_URL+'/rest/v1/'+path,{...opts,
     headers:{'apikey':SB_KEY,'Authorization':'Bearer '+SB_KEY,'Content-Type':'application/json',...(opts.headers||{})}});
@@ -1083,6 +1142,9 @@ async function syncNow(){
         kickMap[m.match_key]=new Date(m.kickoff).getTime();
       });
     }
+    // 0bis. annonce de l'organisateur
+    const ann=await sb('announcements?id=eq.main&select=body').catch(()=>null);
+    if(ann&&ann[0])announcement.body=ann[0].body;
     // 1. résultats officiels : le serveur est la seule source de vérité
     //    (efface aussi les scores locaux qui n'existent pas côté serveur)
     const results=await sb('results?select=match_key,s1,s2');
@@ -1436,6 +1498,9 @@ function renderAll(focusedInput){
   if(ae&&ae.classList&&ae.classList.contains('sc')){
     focusSig={key:ae.dataset.key,side:ae.dataset.side,store:ae.dataset.store};
   }
+
+  // ne pas écraser l'éditeur d'annonce s'il est ouvert
+  if(!document.getElementById('announceInput'))renderAnnounce();
 
   switch(currentTab){
     case 'groups': renderGroups(); break;
