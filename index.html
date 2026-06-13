@@ -220,6 +220,28 @@
   .lead-row .pts{font-weight:900;color:var(--purple);font-size:1.05rem;min-width:54px;text-align:right}
   .lead-row .detail{font-size:.68rem;color:var(--muted)}
 
+  /* Chat / discussion */
+  .chat-card{background:linear-gradient(145deg,var(--card1),var(--card2));border:1px solid var(--line);border-radius:16px;padding:16px;max-width:720px;margin:0 auto 16px}
+  .chat-card h3{font-size:1rem;font-weight:800;color:var(--purple);margin-bottom:12px}
+  .chat-list{display:flex;flex-direction:column;gap:8px;max-height:340px;overflow-y:auto;padding:4px 6px 4px 2px;margin-bottom:12px}
+  .chat-empty{color:var(--muted);font-size:.82rem;text-align:center;padding:20px 10px;font-style:italic}
+  .chat-msg{background:var(--bg2);border-radius:10px;padding:8px 11px;font-size:.84rem;line-height:1.45}
+  .chat-msg.mine{background:#150f26;border:1px solid #8b5cf633}
+  .chat-head{display:flex;align-items:baseline;gap:8px;margin-bottom:2px}
+  .chat-head .who{font-weight:700;color:var(--purple);font-size:.8rem}
+  .chat-msg.mine .chat-head .who{color:#c4b5fd}
+  .chat-head .when{font-size:.66rem;color:var(--muted)}
+  .chat-head .del{margin-left:auto;background:none;border:none;color:var(--muted);cursor:pointer;font-size:.78rem;padding:0 2px}
+  .chat-head .del:hover{color:var(--red)}
+  .chat-body{color:var(--txt);word-wrap:break-word;overflow-wrap:anywhere}
+  .chat-form{display:flex;gap:8px;align-items:flex-end}
+  .chat-form textarea{flex:1;padding:9px 11px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--txt);font-family:inherit;font-size:16px;resize:none;outline:none}
+  .chat-form textarea:focus{border-color:var(--purple);box-shadow:0 0 0 2px #a78bfa22}
+  .chat-form button{padding:10px 16px;border:none;border-radius:10px;font-weight:700;font-size:.85rem;cursor:pointer;font-family:inherit;background:linear-gradient(135deg,#8b5cf6,#a78bfa);color:#0a0e1a}
+  .chat-form button:disabled{opacity:.5;cursor:not-allowed}
+  .chat-count{font-size:.66rem;color:var(--muted);text-align:right;margin-top:4px}
+  .chat-locked{font-size:.82rem;color:var(--muted);text-align:center;padding:12px;background:var(--bg2);border-radius:10px}
+
   /* Aide */
   .help-card{background:linear-gradient(145deg,var(--card1),var(--card2));border:1px solid var(--line);border-radius:16px;padding:22px;max-width:720px;margin:0 auto 16px}
   .help-card h3{font-size:1.05rem;font-weight:800;color:var(--gold);margin-bottom:10px}
@@ -1281,6 +1303,9 @@ async function renderLeaderboard(){
   });
   html+='</div>';
 
+  // espace de discussion (rempli juste après par renderChat)
+  html+='<div class="chat-card" id="chatSection"></div>';
+
   // détail des matchs joués : qui avait pronostiqué quoi
   const playedKeys=allMatchKeys().filter(mk=>resMap[mk.key]);
   const nameById={};players.forEach(pl=>nameById[pl.id]=pl.name);
@@ -1303,6 +1328,80 @@ async function renderLeaderboard(){
   html+='<p style="text-align:center;color:var(--muted);font-size:.78rem;padding:4px 0 30px">🙈 Les pronostics des autres ne sont visibles qu\'une fois le match joué — pas de copie possible !</p>';
 
   c.innerHTML=html;
+  renderChat();
+}
+
+// ═══════════════════════════════════════════
+// DISCUSSION (chat)
+// ═══════════════════════════════════════════
+
+let chatDraft='';
+
+function chatTime(iso){
+  const d=new Date(iso), now=new Date();
+  const hh=String(d.getHours()).padStart(2,'0'), mi=String(d.getMinutes()).padStart(2,'0');
+  if(d.toDateString()===now.toDateString())return `${hh}:${mi}`;
+  return `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')} ${hh}:${mi}`;
+}
+
+async function renderChat(){
+  const sec=document.getElementById('chatSection');
+  if(!sec)return;
+  let rows=null;
+  try{rows=await sb('messages?select=id,body,created_at,players(name)&order=created_at.desc&limit=60')}catch{}
+  let listHTML;
+  if(rows===null)listHTML='<div class="chat-empty">⚠️ Discussion indisponible (hors-ligne ?)</div>';
+  else if(rows.length===0)listHTML='<div class="chat-empty">💬 Aucun message. Lancez la discussion !</div>';
+  else listHTML=rows.slice().reverse().map(m=>{
+    const name=(m.players&&m.players.name)||'?';
+    const mine=player&&name===player.name;
+    const del=adminCode?`<button class="del" title="Supprimer" onclick="deleteMessage(${m.id})">🗑️</button>`:'';
+    return `<div class="chat-msg${mine?' mine':''}">
+      <div class="chat-head"><span class="who">${escHTML(name)}</span><span class="when">${chatTime(m.created_at)}</span>${del}</div>
+      <div class="chat-body">${escHTML(m.body).replace(/\n/g,'<br>')}</div>
+    </div>`;
+  }).join('');
+
+  const form=player
+    ? `<div class="chat-form">
+         <textarea id="chatInput" maxlength="200" rows="2" placeholder="Votre message… (200 car. max)"></textarea>
+         <button onclick="sendMessage()">Envoyer</button>
+       </div><div class="chat-count" id="chatCount">0/200</div>`
+    : '<div class="chat-locked">🔒 Choisissez un pseudo (ci-dessus) pour participer à la discussion.</div>';
+
+  sec.innerHTML=`<h3>💬 Discussion</h3><div class="chat-list" id="chatList">${listHTML}</div>${form}`;
+  const list=document.getElementById('chatList');
+  if(list)list.scrollTop=list.scrollHeight;
+  const ta=document.getElementById('chatInput');
+  if(ta){
+    ta.value=chatDraft;
+    const cnt=document.getElementById('chatCount');
+    const upd=()=>{chatDraft=ta.value;cnt.textContent=`${ta.value.length}/200`};
+    ta.addEventListener('input',upd);
+    ta.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendMessage()}});
+    upd();
+  }
+}
+
+async function sendMessage(){
+  if(!player)return;
+  const ta=document.getElementById('chatInput');
+  const body=(ta?ta.value:'').trim();
+  if(!body)return;
+  try{
+    await sb('messages',{method:'POST',body:JSON.stringify({player_id:player.id,body})});
+    chatDraft='';
+    await renderChat();
+  }catch{showToast('❌ Message non envoyé')}
+}
+
+async function deleteMessage(id){
+  if(!adminCode)return;
+  if(!confirm('Supprimer ce message ?'))return;
+  try{
+    await sb('rpc/delete_message',{method:'POST',body:JSON.stringify({msg_id:id,code:adminCode})});
+    await renderChat();
+  }catch{showToast('❌ Suppression impossible')}
 }
 
 // ═══════════════════════════════════════════
@@ -1586,9 +1685,10 @@ setMode(adminCode?'res':'prd'); // les non-organisateurs arrivent directement en
 if(!localStorage.getItem(WELCOME_KEY))showWelcome();
 syncNow().then(()=>renderAll()); // récupère résultats + pronostics du concours en ligne
 // resynchronisation : toutes les 5 min et au retour sur l'onglet/l'appli
-setInterval(()=>{if(document.visibilityState==='visible')syncNow().then(()=>renderAll())},5*60*1000);
-// rafraîchissement visuel chaque minute (badges « 🔴 En cours » / verrous au coup d'envoi)
-setInterval(()=>{if(document.visibilityState==='visible'&&!document.activeElement?.classList?.contains('sc'))renderAll()},60*1000);
+function isTyping(){const a=document.activeElement;return !!a&&(a.tagName==='INPUT'||a.tagName==='TEXTAREA')}
+setInterval(()=>{if(document.visibilityState==='visible')syncNow().then(()=>{if(!isTyping())renderAll()})},5*60*1000);
+// rafraîchissement visuel chaque minute (badges « 🔴 En cours », chat, verrous au coup d'envoi)
+setInterval(()=>{if(document.visibilityState==='visible'&&!isTyping())renderAll()},60*1000);
 document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')syncNow().then(()=>renderAll())});
 </script>
 </body>
