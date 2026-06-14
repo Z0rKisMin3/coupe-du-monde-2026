@@ -241,6 +241,21 @@
   .chat-form button:disabled{opacity:.5;cursor:not-allowed}
   .chat-count{font-size:.66rem;color:var(--muted);text-align:right;margin-top:4px}
   .chat-locked{font-size:.82rem;color:var(--muted);text-align:center;padding:12px;background:var(--bg2);border-radius:10px}
+  /* réactions emoji */
+  .chat-reacts{display:flex;flex-wrap:wrap;gap:5px;margin-top:6px;align-items:center}
+  .react-pill{display:inline-flex;align-items:center;gap:4px;background:var(--bg3);border:1px solid var(--line);border-radius:99px;padding:1px 8px;font-size:.78rem;cursor:pointer;transition:.12s;user-select:none}
+  .react-pill:hover{border-color:#8b5cf688}
+  .react-pill.mine{background:#1d1438;border-color:var(--purple)}
+  .react-pill .cnt{font-size:.7rem;font-weight:700;color:var(--muted2)}
+  .react-pill.mine .cnt{color:#c4b5fd}
+  .react-add{background:none;border:1px dashed var(--line);color:var(--muted);border-radius:99px;width:24px;height:22px;line-height:1;cursor:pointer;font-size:.82rem;padding:0}
+  .react-add:hover{color:var(--purple);border-color:#8b5cf688}
+  .emoji-pop{position:fixed;z-index:120;background:var(--card2);border:1px solid var(--line);border-radius:12px;padding:8px;box-shadow:0 12px 30px #000000aa;display:flex;flex-wrap:wrap;gap:4px;max-width:236px}
+  .emoji-pop button{background:none;border:none;font-size:1.25rem;cursor:pointer;border-radius:8px;width:34px;height:34px;line-height:1;padding:0}
+  .emoji-pop button:hover{background:var(--bg2)}
+  .chat-input-row{position:relative;flex:1;display:flex}
+  .emoji-btn{background:none;border:none;font-size:1.2rem;cursor:pointer;padding:0 6px;align-self:center}
+  .emoji-btn:hover{filter:brightness(1.2)}
 
   /* Aide */
   .help-card{background:linear-gradient(145deg,var(--card1),var(--card2));border:1px solid var(--line);border-radius:16px;padding:22px;max-width:720px;margin:0 auto 16px}
@@ -1344,11 +1359,44 @@ function chatTime(iso){
   return `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')} ${hh}:${mi}`;
 }
 
+const QUICK_REACTS=['👍','❤️','😂','🔥','⚽','😮','👏','🎉'];
+const COMPOSER_EMOJIS=['😀','😄','😅','😂','😉','😍','😎','🤩','🤔','😬','😱','😭','😡','🥳','😴','👍','👎','👏','🙏','💪','🔥','❤️','💔','✅','❌','⚽','🥅','🏆','🎉','🤞','🇧🇪','🇫🇷','🇧🇷','🇦🇷','🇪🇸','🇩🇪','🇵🇹','🇲🇦','🇳🇱','🏴󠁧󠁢󠁥󠁮󠁧󠁿'];
+let chatMyReacts=new Set();
+
 async function renderChat(){
   const sec=document.getElementById('chatSection');
   if(!sec)return;
-  let rows=null;
-  try{rows=await sb('messages?select=id,body,created_at,players(name)&order=created_at.desc&limit=60')}catch{}
+  closeEmojiPopover();
+  let rows=null, reactions=[];
+  try{
+    const [m,re]=await Promise.all([
+      sb('messages?select=id,body,created_at,players!messages_player_id_fkey(name)&order=created_at.desc&limit=60'),
+      sb('reactions?select=message_id,emoji,player_id,players!reactions_player_id_fkey(name)')
+    ]);
+    rows=m; reactions=re||[];
+  }catch{}
+
+  // regroupe les réactions par message puis par emoji
+  const reMap={}; chatMyReacts=new Set();
+  reactions.forEach(r=>{
+    const byMsg=reMap[r.message_id]||(reMap[r.message_id]={});
+    const e=byMsg[r.emoji]||(byMsg[r.emoji]={count:0,mine:false,names:[]});
+    e.count++; e.names.push((r.players&&r.players.name)||'?');
+    if(player&&r.player_id===player.id){e.mine=true;chatMyReacts.add(r.message_id+'|'+r.emoji)}
+  });
+
+  function reactsHTML(mid){
+    const em=reMap[mid]||{};
+    let h=Object.keys(em).map(emoji=>{
+      const e=em[emoji];
+      const cl=e.mine?'react-pill mine':'react-pill';
+      const click=player?` onclick="toggleReaction(${mid},'${emoji}')"`:'';
+      return `<span class="${cl}" title="${escHTML(e.names.join(', '))}"${click}>${emoji}<span class="cnt">${e.count}</span></span>`;
+    }).join('');
+    if(player)h+=`<button class="react-add" title="Réagir" onclick="openReactPicker(event,${mid})">＋</button>`;
+    return h?`<div class="chat-reacts">${h}</div>`:'';
+  }
+
   let listHTML;
   if(rows===null)listHTML='<div class="chat-empty">⚠️ Discussion indisponible (hors-ligne ?)</div>';
   else if(rows.length===0)listHTML='<div class="chat-empty">💬 Aucun message. Lancez la discussion !</div>';
@@ -1359,12 +1407,16 @@ async function renderChat(){
     return `<div class="chat-msg${mine?' mine':''}">
       <div class="chat-head"><span class="who">${escHTML(name)}</span><span class="when">${chatTime(m.created_at)}</span>${del}</div>
       <div class="chat-body">${escHTML(m.body).replace(/\n/g,'<br>')}</div>
+      ${reactsHTML(m.id)}
     </div>`;
   }).join('');
 
   const form=player
     ? `<div class="chat-form">
-         <textarea id="chatInput" maxlength="200" rows="2" placeholder="Votre message… (200 car. max)"></textarea>
+         <div class="chat-input-row">
+           <textarea id="chatInput" maxlength="200" rows="2" placeholder="Votre message… (200 car. max)"></textarea>
+           <button class="emoji-btn" type="button" title="Émojis" onclick="openEmojiPicker(event)">😊</button>
+         </div>
          <button onclick="sendMessage()">Envoyer</button>
        </div><div class="chat-count" id="chatCount">0/200</div>`
     : '<div class="chat-locked">🔒 Choisissez un pseudo (ci-dessus) pour participer à la discussion.</div>';
@@ -1402,6 +1454,63 @@ async function deleteMessage(id){
     await sb('rpc/delete_message',{method:'POST',body:JSON.stringify({msg_id:id,code:adminCode})});
     await renderChat();
   }catch{showToast('❌ Suppression impossible')}
+}
+
+async function toggleReaction(mid,emoji){
+  if(!player)return;
+  closeEmojiPopover();
+  try{
+    if(chatMyReacts.has(mid+'|'+emoji)){
+      await sb(`reactions?message_id=eq.${mid}&player_id=eq.${player.id}&emoji=eq.${encodeURIComponent(emoji)}`,{method:'DELETE'});
+    }else{
+      await sb('reactions',{method:'POST',body:JSON.stringify({message_id:mid,player_id:player.id,emoji})});
+    }
+    await renderChat();
+  }catch{showToast('❌ Réaction impossible')}
+}
+
+// ── Sélecteur d'émojis (popover) ──
+let _emojiPop=null, _emojiOutside=null;
+function closeEmojiPopover(){
+  if(_emojiPop){_emojiPop.remove();_emojiPop=null}
+  if(_emojiOutside){document.removeEventListener('mousedown',_emojiOutside,true);_emojiOutside=null}
+}
+function showEmojiPopover(anchor,emojis,onPick,keepOpen){
+  closeEmojiPopover();
+  const pop=document.createElement('div');
+  pop.className='emoji-pop';
+  pop.innerHTML=emojis.map(e=>`<button type="button">${e}</button>`).join('');
+  document.body.appendChild(pop);
+  const r=anchor.getBoundingClientRect();
+  let top=r.top-pop.offsetHeight-8;
+  if(top<8)top=r.bottom+8;
+  let left=Math.min(r.left,window.innerWidth-pop.offsetWidth-8);
+  pop.style.top=Math.max(8,top)+'px';
+  pop.style.left=Math.max(8,left)+'px';
+  pop.querySelectorAll('button').forEach((b,i)=>b.addEventListener('click',ev=>{
+    ev.preventDefault();onPick(emojis[i]);if(!keepOpen)closeEmojiPopover();
+  }));
+  _emojiPop=pop;
+  _emojiOutside=ev=>{if(!pop.contains(ev.target)&&ev.target!==anchor)closeEmojiPopover()};
+  setTimeout(()=>document.addEventListener('mousedown',_emojiOutside,true),0);
+}
+function openReactPicker(ev,mid){
+  showEmojiPopover(ev.currentTarget,QUICK_REACTS,e=>toggleReaction(mid,e));
+}
+function openEmojiPicker(ev){
+  showEmojiPopover(ev.currentTarget,COMPOSER_EMOJIS,e=>insertEmoji(e),true);
+}
+function insertEmoji(emoji){
+  const ta=document.getElementById('chatInput');
+  if(!ta)return;
+  const s=ta.selectionStart, e=ta.selectionEnd;
+  const next=ta.value.slice(0,s)+emoji+ta.value.slice(e);
+  if(next.length>200){showToast('200 caractères max');return}
+  ta.value=next;
+  ta.selectionStart=ta.selectionEnd=s+emoji.length;
+  chatDraft=ta.value;
+  const cnt=document.getElementById('chatCount');if(cnt)cnt.textContent=`${ta.value.length}/200`;
+  ta.focus();
 }
 
 // ═══════════════════════════════════════════
