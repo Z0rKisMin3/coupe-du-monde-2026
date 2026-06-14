@@ -1598,9 +1598,11 @@ function showToast(msg){
 
 let mode='res'; // 'res' = résultats réels · 'prd' = pronostics
 let currentTab='groups';
+const MODE_KEY='wc2026_mode';
 
 function setMode(m){
   mode=m;
+  localStorage.setItem(MODE_KEY,m); // mémorise le mode pour la prochaine visite
   document.getElementById('modeRes').classList.toggle('active',m==='res');
   document.getElementById('modePrd').classList.toggle('active',m==='prd');
   const hint=document.getElementById('modeHint');
@@ -1681,7 +1683,10 @@ function renderAll(focusedInput){
 
 // Init
 updateAdminBtn();
-setMode(adminCode?'res':'prd'); // les non-organisateurs arrivent directement en mode pronostics
+// au chargement : on restaure le dernier mode utilisé sur ce navigateur ;
+// à défaut, l'organisateur démarre en Résultats et les autres en Pronostics
+const savedMode=localStorage.getItem(MODE_KEY);
+setMode(savedMode==='res'||savedMode==='prd' ? savedMode : (adminCode?'res':'prd'));
 if(!localStorage.getItem(WELCOME_KEY))showWelcome();
 syncNow().then(()=>renderAll()); // récupère résultats + pronostics du concours en ligne
 // resynchronisation : toutes les 5 min et au retour sur l'onglet/l'appli
