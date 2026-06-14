@@ -148,7 +148,7 @@ async function list() {
   GROUPS.forEach(g => g.matches.forEach((m, mi) => {
     const key = 'g' + g.id + '_' + mi;
     if (!res[key] && lock[key] && now >= lock[key])
-      pending.push({ key, match: `${m.t1} - ${m.t2}`, date: m.d + ' ' + m.h, phase: 'Groupe ' + g.id });
+      pending.push({ key, match: `${m.t1} - ${m.t2}`, coup_envoi_heure_belge: m.d + ' ' + m.h, fin_prevue_utc: lock[key].toISOString(), statut: 'TERMINE selon le calendrier — chercher le SCORE FINAL', phase: 'Groupe ' + g.id });
   }));
   const { winners, losers, assign } = koResults(res);
   KO_MATCHES.forEach(round => round.matchups.forEach(mu => {
@@ -156,9 +156,13 @@ async function list() {
     if (res[key] || !lock[key] || now < lock[key]) return;
     const t1 = resolveTeam(mu.t1.src, res, winners, losers, assign);
     const t2 = resolveTeam(mu.t2.src, res, winners, losers, assign);
-    if (t1.q && t2.q) pending.push({ key, match: `${t1.name} - ${t2.name}`, date: mu.d + ' ' + mu.h, phase: round.r });
+    if (t1.q && t2.q) pending.push({ key, match: `${t1.name} - ${t2.name}`, coup_envoi_heure_belge: mu.d + ' ' + mu.h, fin_prevue_utc: lock[key].toISOString(), statut: 'TERMINE selon le calendrier — chercher le SCORE FINAL', phase: round.r });
   }));
-  console.log(JSON.stringify({ maintenant_utc: now.toISOString(), matchs_en_attente: pending }, null, 2));
+  console.log(JSON.stringify({
+    maintenant_utc: now.toISOString(),
+    note: "Tous les matchs ci-dessous sont DEJA TERMINES (leur heure de fin 'fin_prevue_utc' est passee). 'coup_envoi_heure_belge' est en heure belge (CEST = UTC+2), PAS en UTC. Cherchez le SCORE FINAL et ignorez les scores 'en direct'/'live' qui sont des caches obsoletes.",
+    matchs_en_attente: pending
+  }, null, 2));
 }
 
 async function push(key, s1, s2) {
