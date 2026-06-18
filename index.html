@@ -1321,9 +1321,9 @@ async function renderLeaderboard(){
   // espace de discussion (rempli juste après par renderChat)
   html+='<div class="chat-card" id="chatSection"></div>';
 
-  // détail des matchs joués : qui avait pronostiqué quoi — triés par ordre chronologique (coup d'envoi)
+  // détail des matchs joués : qui avait pronostiqué quoi — du plus récent au plus ancien (anti-chronologique)
   const kickTs=k=>kickMap[k]||LOCAL_KICK[k]||0;
-  const playedKeys=allMatchKeys().filter(mk=>resMap[mk.key]).sort((a,b)=>kickTs(a.key)-kickTs(b.key));
+  const playedKeys=allMatchKeys().filter(mk=>resMap[mk.key]).sort((a,b)=>kickTs(b.key)-kickTs(a.key));
   const nameById={};players.forEach(pl=>nameById[pl.id]=pl.name);
   if(playedKeys.length){
     html+='<div class="lead-card"><h3>⚽ Pronostics sur les matchs joués</h3>';
