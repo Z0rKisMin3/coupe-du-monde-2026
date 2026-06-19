@@ -1612,15 +1612,24 @@ function ensureLivePolling(active){
   }
 }
 
+function kickOf(key){return kickMap[key]||LOCAL_KICK[key]||0}
+// fenêtre de SONDAGE : du coup d'envoi à +2h45 (couvre temps additionnel,
+// prolongations, tirs au but) — on interroge football-data pendant tout ce temps.
+function inPollWindow(key){const k=kickOf(key);return Date.now()>=k && Date.now()<k+165*60000}
+
 function renderLiveBar(){
   const el=document.getElementById('liveBar');
   if(!el)return;
-  const live=allMatchKeys().filter(mk=>
+  const candidates=allMatchKeys().filter(mk=>
     !hasBoth(actual(mk.key))
-    &&matchStarted(mk.key)&&!matchOver(mk.key)
+    &&inPollWindow(mk.key)
     &&!(mk.ko&&!(mk.q1&&mk.q2)) // phase finale : équipes connues uniquement
   );
-  ensureLivePolling(live.length>0); // ne sonde l'API que s'il y a un match en cours
+  ensureLivePolling(candidates.length>0); // sonde l'API tant qu'un match peut être en cours
+  // affiché si : encore dans la fenêtre normale (1h50) OU football-data confirme qu'il joue
+  const live=candidates.filter(mk=>
+    liveScores[mk.t1+'|'+mk.t2] || Date.now()<kickOf(mk.key)+110*60000
+  );
   if(!live.length){el.style.display='none';return}
   el.style.display='block';
   el.innerHTML=`<span class="live-tag">🔴 EN COURS</span>`+
