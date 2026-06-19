@@ -1591,6 +1591,27 @@ function closeWelcome(){
 // BANDEAU « MATCH EN COURS » (barre collante)
 // ═══════════════════════════════════════════
 
+// score en direct récupéré via la fonction relais Supabase (clé football-data côté serveur)
+let liveScores={}, livePollTimer=null;
+async function fetchLiveScores(){
+  if(document.visibilityState!=='visible')return;
+  try{
+    const r=await fetch(SB_URL+'/functions/v1/live',{headers:{apikey:SB_KEY}});
+    const d=await r.json();
+    liveScores={};
+    (d.live||[]).forEach(m=>{liveScores[m.home+'|'+m.away]={hs:m.hs,as:m.as,status:m.status}});
+    renderLiveBar();
+  }catch{}
+}
+function ensureLivePolling(active){
+  if(active&&!livePollTimer){
+    fetchLiveScores();
+    livePollTimer=setInterval(fetchLiveScores,30000); // 30 s, mais l'API n'est sollicitée qu'1×/25s grâce au cache serveur
+  }else if(!active&&livePollTimer){
+    clearInterval(livePollTimer);livePollTimer=null;liveScores={};
+  }
+}
+
 function renderLiveBar(){
   const el=document.getElementById('liveBar');
   if(!el)return;
@@ -1599,10 +1620,18 @@ function renderLiveBar(){
     &&matchStarted(mk.key)&&!matchOver(mk.key)
     &&!(mk.ko&&!(mk.q1&&mk.q2)) // phase finale : équipes connues uniquement
   );
+  ensureLivePolling(live.length>0); // ne sonde l'API que s'il y a un match en cours
   if(!live.length){el.style.display='none';return}
   el.style.display='block';
   el.innerHTML=`<span class="live-tag">🔴 EN COURS</span>`+
-    live.map(mk=>`${getFlag(mk.t1)} <strong>${mk.t1}</strong> – <strong>${mk.t2}</strong> ${getFlag(mk.t2)}`).join('&nbsp;&nbsp;·&nbsp;&nbsp;');
+    live.map(mk=>{
+      const ls=liveScores[mk.t1+'|'+mk.t2];
+      if(ls){
+        const etat=ls.status==='PAUSED'?'mi-temps':'en direct';
+        return `${getFlag(mk.t1)} <strong>${mk.t1} ${ls.hs}–${ls.as} ${mk.t2}</strong> ${getFlag(mk.t2)} <span style="color:var(--muted);font-weight:400;font-size:.72rem">· ${etat}</span>`;
+      }
+      return `${getFlag(mk.t1)} <strong>${mk.t1}</strong> – <strong>${mk.t2}</strong> ${getFlag(mk.t2)}`;
+    }).join('&nbsp;&nbsp;·&nbsp;&nbsp;');
 }
 
 // ═══════════════════════════════════════════
