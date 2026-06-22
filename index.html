@@ -154,6 +154,8 @@
 
   /* Calendar */
   .cal-day{background:linear-gradient(145deg,var(--card1),var(--card2));border-radius:14px;padding:16px;margin-bottom:14px;border:1px solid var(--line)}
+  .cal-day.cal-today{border-color:#ef444466;box-shadow:0 0 0 1px #ef444433}
+  .cal-badge{font-size:.62rem;font-weight:700;color:#f87171;background:#ef444418;border:1px solid #ef444455;padding:1px 8px;border-radius:99px;vertical-align:2px;margin-left:4px}
   .cal-day h3{font-size:.95rem;font-weight:800;color:var(--orange);margin-bottom:10px;display:flex;align-items:center;gap:8px}
   .cal-day h3 small{font-weight:500;font-size:.72rem;color:var(--muted)}
   .cal-day .gm{margin-bottom:5px}
@@ -852,19 +854,30 @@ function renderGroups(){
 }
 
 function renderCalendar(){
-  const byDate={};
-  allMatchKeys().forEach(mk=>{
-    (byDate[mk.d]=byDate[mk.d]||[]).push(mk);
-  });
-  const dateKey=d=>{const[dd,mm]=d.split('/');return parseInt(mm)*100+parseInt(dd)};
-  const days=Object.keys(byDate).sort((a,b)=>dateKey(a)-dateKey(b));
-  const monthNames={'06':'juin','07':'juillet'};
+  // une « session » = soirée + nuit qui suit (heure belge) : on rattache les matchs
+  // d'avant 11h à la veille en décalant le coup d'envoi de 11h en arrière.
+  const SHIFT=11*3600*1000;
+  const kt=mk=>kickMap[mk.key]||LOCAL_KICK[mk.key]||0;
+  const sessId=ts=>{const d=new Date(ts-SHIFT);return d.getUTCFullYear()*10000+(d.getUTCMonth()+1)*100+d.getUTCDate()};
+  const monthNames={6:'juin',7:'juillet'};
+  const fmt=d=>{const[dd,mm]=d.split('/');return parseInt(dd)+' '+(monthNames[parseInt(mm)]||mm)};
+
+  const sessions={};
+  allMatchKeys().forEach(mk=>{const id=sessId(kt(mk));(sessions[id]=sessions[id]||[]).push(mk)});
+  const nowSess=sessId(Date.now());
+  const ids=Object.keys(sessions).map(Number);
+  // session du jour + à venir d'abord (ordre chronologique), puis les passées en bas
+  const ordered=[...ids.filter(id=>id>=nowSess).sort((a,b)=>a-b),
+                 ...ids.filter(id=>id<nowSess).sort((a,b)=>a-b)];
+
   let html='';
-  days.forEach(d=>{
-    const[dd,mm]=d.split('/');
-    const list=byDate[d];
+  ordered.forEach(id=>{
+    const list=sessions[id].slice().sort((a,b)=>kt(a)-kt(b));
     const played=list.filter(mk=>hasBoth(actual(mk.key))).length;
-    html+=`<div class="cal-day"><h3>📅 ${parseInt(dd)} ${monthNames[mm]||mm} <small>${list.length} match${list.length>1?'s':''} · ${played} joué${played>1?'s':''}</small></h3>`;
+    const first=list[0].d, last=list[list.length-1].d;
+    const label=first===last?fmt(first):fmt(first)+' → '+fmt(last);
+    const isToday=id===nowSess;
+    html+=`<div class="cal-day${isToday?' cal-today':''}"><h3>${isToday?'🔴':'📅'} ${label}${isToday?' <span class="cal-badge">à l\'affiche</span>':''} <small>${list.length} match${list.length>1?'s':''} · ${played} joué${played>1?'s':''}</small></h3>`;
     html+=list.map(mk=>matchRowHTML(mk,{showPhase:true})).join('');
     html+='</div>';
   });
