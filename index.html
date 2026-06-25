@@ -155,6 +155,9 @@
   /* Calendar */
   .cal-day{background:linear-gradient(145deg,var(--card1),var(--card2));border-radius:14px;padding:16px;margin-bottom:14px;border:1px solid var(--line)}
   .cal-day.cal-today{border-color:#ef444466;box-shadow:0 0 0 1px #ef444433}
+  .cal-section{font-size:1.1rem;font-weight:800;color:var(--gold);margin:26px 0 12px;padding-bottom:6px;border-bottom:2px solid #f59e0b44}
+  .cal-section:first-child{margin-top:2px}
+  .cal-section-past{color:var(--muted2);border-bottom-color:var(--line);font-size:.95rem}
   .cal-badge{font-size:.62rem;font-weight:700;color:#f87171;background:#ef444418;border:1px solid #ef444455;padding:1px 8px;border-radius:99px;vertical-align:2px;margin-left:4px}
   .cal-day h3{font-size:.95rem;font-weight:800;color:var(--orange);margin-bottom:10px;display:flex;align-items:center;gap:8px}
   .cal-day h3 small{font-weight:500;font-size:.72rem;color:var(--muted)}
@@ -870,9 +873,25 @@ function renderCalendar(){
   const ordered=[...ids.filter(id=>id>=nowSess).sort((a,b)=>a-b),
                  ...ids.filter(id=>id<nowSess).sort((a,b)=>a-b)];
 
+  // phase d'une session (pour les en-têtes de section)
+  const phaseOf=mk=>(mk.phase&&mk.phase.startsWith('Groupe'))?'Phase de groupes':mk.phase;
+  const sectionTitle=p=>p==='Phase de groupes'?'📋 Phase de groupes':(/🏆|FINALE/.test(p)?p:'🏆 '+p);
+
   let html='';
+  let lastSection=null, pastShown=false;
   ordered.forEach(id=>{
     const list=sessions[id].slice().sort((a,b)=>kt(a)-kt(b));
+    // séparateur quand on bascule dans les matchs déjà passés
+    if(id<nowSess && !pastShown){
+      html+=`<div class="cal-section cal-section-past">✅ Matchs déjà joués</div>`;
+      pastShown=true; lastSection=null;
+    }
+    // en-tête de phase quand elle change
+    const ph=phaseOf(list[0]);
+    if(ph!==lastSection){
+      html+=`<div class="cal-section">${sectionTitle(ph)}</div>`;
+      lastSection=ph;
+    }
     const played=list.filter(mk=>hasBoth(actual(mk.key))).length;
     const first=list[0].d, last=list[list.length-1].d;
     const label=first===last?fmt(first):fmt(first)+' → '+fmt(last);
