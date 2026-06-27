@@ -165,6 +165,9 @@
   .cal-phase{font-size:.62rem;color:var(--muted2);background:var(--line2);padding:1px 8px;border-radius:99px}
 
   /* Knockout */
+  .ko-rule{max-width:720px;margin:0 auto 16px;background:#f59e0b12;border:1px solid #f59e0b44;border-radius:12px;padding:11px 16px;font-size:.82rem;line-height:1.55;color:var(--muted2)}
+  .ko-rule strong{color:var(--gold)}
+  .ko-rule-more{color:var(--muted);font-style:italic}
   .ko-round{background:linear-gradient(145deg,var(--card1),var(--card2));border-radius:16px;padding:18px;margin-bottom:16px;border:1px solid var(--line)}
   .ko-round h3{font-size:1rem;font-weight:800;margin-bottom:12px;color:var(--orange)}
   .ko-round.final-round{border-color:#f59e0b66;background:linear-gradient(145deg,#1c1810,#211d12)}
@@ -907,6 +910,9 @@ function renderKnockout(){
   const {koWinners,koLosers}=computeKoResults();
   let html='';
 
+  // rappel de la règle prolongations / tirs au but
+  html+=`<div class="ko-rule">⏱️ <strong>Règle :</strong> on retient le score <strong>après prolongations</strong>. Aux tirs au but → score de la prolongation <strong>+1 au qualifié</strong> (ex. 1–1 puis t.a.b. gagnés → 2–1). Pronostiquez un <strong>vainqueur</strong>, jamais un nul. <span class="ko-rule-more">Détails dans l'onglet ❓ Aide.</span></div>`;
+
   // bannière champion
   const finalScore=actual(getKoId('FINAL'));
   if(koWinners['FINAL']){
@@ -1563,6 +1569,16 @@ const HELP_PRONOS=`
   </ul>
   <p>Votre pronostic est <strong>verrouillé 🔒 dès le coup d'envoi du match</strong> — impossible de le modifier en cours de match, pas de triche ! Retrouvez votre total de points dans l'onglet <strong>🔮 Mes pronostics</strong>.</p>`;
 
+const HELP_KO=`
+  <p>En phase finale, un match peut se prolonger. Le résultat retenu (celui qui compte pour les points) est <strong>le score à la fin du jeu, prolongations comprises</strong> :</p>
+  <ul>
+    <li>⏱️ <strong>Temps réglementaire</strong> (90 min) → ce score. Ex. <em>2–0</em>.</li>
+    <li>⏱️ <strong>Prolongation</strong> (120 min) → le score <strong>après prolongation</strong>. Ex. 1–1 puis 2–1 a.p. → on retient <strong>2–1</strong>.</li>
+    <li>🥅 <strong>Tirs au but</strong> → le score à la fin de la prolongation, <strong>+1 but au vainqueur de la séance</strong>. Ex. 1–1 puis l'Espagne gagne aux t.a.b. → on retient <strong>2–1 Espagne</strong>.</li>
+  </ul>
+  <p>👉 Donc pronostiquez le <strong>score final</strong> (prolongations incluses), et <strong>toujours un vainqueur</strong> (jamais un nul) pour un match à élimination directe.</p>
+  <div class="warn">🥅 Sur un match qui part aux tirs au but, le score exact (+3) est quasi impossible à deviner — visez surtout le <strong>bon qualifié</strong> (+1 point).</div>`;
+
 const HELP_SAUVEGARDE=`
   <p>Vos scores et pronostics sont enregistrés <strong>dans votre navigateur, sur votre ordinateur</strong> :</p>
   <ul>
@@ -1580,6 +1596,7 @@ function renderHelp(){
     </div>
     <div class="help-card"><h3>📝 Saisir les résultats</h3>${HELP_SAISIE}</div>
     <div class="help-card"><h3>🔮 Faire vos pronostics</h3>${HELP_PRONOS}</div>
+    <div class="help-card"><h3>🏆 Phase finale : prolongations & tirs au but</h3>${HELP_KO}</div>
     <div class="help-card"><h3>🏅 Concours entre amis</h3>
       <p>Dans l'onglet <strong>🏅 Classement</strong>, choisissez un <strong>pseudo</strong> pour rejoindre le concours : vos pronostics sont alors envoyés en ligne et comparés à ceux des autres.</p>
       <ul>
