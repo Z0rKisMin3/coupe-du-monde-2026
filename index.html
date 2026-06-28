@@ -367,6 +367,7 @@
   <div class="tab" data-tab="ko">🏆 Phase finale</div>
   <div class="tab" data-tab="pred">🔮 Mes pronostics</div>
   <div class="tab" data-tab="lead">🏅 Classement</div>
+  <div class="tab" data-tab="arch">📂 Archives</div>
   <div class="tab" data-tab="bel">🇧🇪 Belgique</div>
   <div class="tab" data-tab="stats">📊 Stats</div>
   <div class="tab" data-tab="help">❓ Aide</div>
@@ -381,6 +382,7 @@
 <div id="view-bel" class="view"><div id="belContainer"></div></div>
 <div id="view-stats" class="view"><div id="statsContainer"></div></div>
 <div id="view-help" class="view"><div id="helpContainer"></div></div>
+<div id="view-arch" class="view"><div id="archContainer"></div></div>
 
 <div class="modal-overlay" id="welcomeModal">
   <div class="modal">
@@ -1412,13 +1414,13 @@ async function renderLeaderboard(){
   // espace de discussion (rempli juste après par renderChat)
   html+='<div class="chat-card" id="chatSection"></div>';
 
-  // détail des matchs joués : qui avait pronostiqué quoi — du plus récent au plus ancien (anti-chronologique)
+  // détail Phase finale uniquement (groupes → onglet Archives)
   const kickTs=k=>kickMap[k]||LOCAL_KICK[k]||0;
-  const playedKeys=allMatchKeys().filter(mk=>resMap[mk.key]).sort((a,b)=>kickTs(b.key)-kickTs(a.key));
   const nameById={};players.forEach(pl=>nameById[pl.id]=pl.name);
-  if(playedKeys.length){
-    html+='<div class="lead-card"><h3>⚽ Pronostics sur les matchs joués</h3>';
-    playedKeys.forEach(mk=>{
+  const koPlayedKeys=allMatchKeys().filter(mk=>resMap[mk.key]&&mk.ko).sort((a,b)=>kickTs(b.key)-kickTs(a.key));
+  if(koPlayedKeys.length){
+    html+='<div class="lead-card"><h3>🏆 Pronostics — Phase finale</h3>';
+    koPlayedKeys.forEach(mk=>{
       const a=resMap[mk.key];
       const matchPreds=preds.filter(p=>p.match_key===mk.key);
       if(!matchPreds.length)return;
@@ -1431,11 +1433,66 @@ async function renderLeaderboard(){
     });
     html+='</div>';
   }
-  // les pronostics des autres sur les matchs NON joués restent cachés (anti-copie)
-  html+='<p style="text-align:center;color:var(--muted);font-size:.78rem;padding:4px 0 30px">🙈 Les pronostics des autres ne sont visibles qu\'une fois le match joué — pas de copie possible !</p>';
+  html+='<p style="text-align:center;color:var(--muted);font-size:.78rem;padding:4px 0 8px">🙈 Pronostics visibles uniquement après le coup de sifflet final · Phase de groupes → onglet 📂 Archives</p>';
 
   c.innerHTML=html;
   renderChat();
+}
+
+async function renderArchives(){
+  const c=document.getElementById('archContainer');
+  if(!player){
+    c.innerHTML=`<div class="help-card" style="text-align:center;padding:32px">
+      <div style="font-size:2rem;margin-bottom:12px">📂</div>
+      <p>Rejoins le concours dans l'onglet <strong>🏅 Classement</strong> pour consulter les archives de la phase de groupes.</p>
+    </div>`;
+    return;
+  }
+  c.innerHTML='<div class="empty-state"><div class="big">⏳</div>Chargement des archives…</div>';
+  let players,preds,results;
+  try{
+    [players,preds,results]=await Promise.all([
+      sb('players?select=id,name'),
+      sbAll('predictions?select=player_id,match_key,s1,s2'),
+      sb('results?select=match_key,s1,s2')
+    ]);
+  }catch{
+    c.innerHTML='<div class="empty-state"><div class="big">⚠️</div>Impossible de joindre le serveur.<br>Vérifie ta connexion puis ré-ouvre cet onglet.</div>';
+    return;
+  }
+  const resMap={};
+  results.forEach(r=>resMap[r.match_key]=[r.s1,r.s2]);
+  const nameById={};
+  players.forEach(pl=>nameById[pl.id]=pl.name);
+
+  let html=`<div class="lead-header">
+    <span class="who">📂 Phase de groupes</span>
+    <button onclick="renderArchives()">🔄 Actualiser</button>
+  </div>`;
+
+  let anyGroup=false;
+  GROUPS.forEach(g=>{
+    const played=g.matches.map((m,mi)=>({key:getGmId(g.id,mi),t1:m.t1,t2:m.t2,d:m.d}))
+      .filter(mk=>resMap[mk.key]).reverse();
+    if(!played.length)return;
+    anyGroup=true;
+    html+=`<div class="lead-card"><h3>📋 Groupe ${g.id}</h3>`;
+    played.forEach(mk=>{
+      const a=resMap[mk.key];
+      const matchPreds=preds.filter(p=>p.match_key===mk.key);
+      if(!matchPreds.length)return;
+      let pills='';
+      matchPreds
+        .map(p=>({name:nameById[p.player_id]||'?',s1:p.s1,s2:p.s2,pts:predPoints([p.s1,p.s2],a)}))
+        .sort((x,y)=>y.pts-x.pts||x.name.localeCompare(y.name))
+        .forEach(p=>{pills+=`<span class="pts-tag pts-${p.pts}">${p.name} : ${p.s1}–${p.s2} (+${p.pts})</span> `});
+      html+=`<div class="pred-row"><span class="match">${getFlag(mk.t1)} ${mk.t1} <strong>${a[0]}–${a[1]}</strong> ${mk.t2} ${getFlag(mk.t2)} <small style="color:var(--muted)">· ${mk.d}</small></span>${pills}</div>`;
+    });
+    html+='</div>';
+  });
+  if(!anyGroup)html+='<div class="empty-state"><div class="big">📋</div>Aucun match de groupe terminé pour l\'instant.</div>';
+
+  c.innerHTML=html;
 }
 
 // ═══════════════════════════════════════════
@@ -1922,6 +1979,7 @@ function renderAll(focusedInput){
     case 'ko': renderKnockout(); break;
     case 'pred': renderPredictions(); break;
     case 'lead': renderLeaderboard(); break;
+    case 'arch': renderArchives(); break;
     case 'bel': renderBelgium(); break;
     case 'stats': renderStatsView(); break;
     case 'help': renderHelp(); break;
