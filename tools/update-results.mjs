@@ -69,11 +69,16 @@ function allThirds(res) {
 
 // Attribution unique des 8 meilleurs 3es aux places du tableau (backtracking),
 // calculée uniquement quand les 12 groupes sont terminés — même logique que l'app.
+const OFFICIAL_THIRDS = { "BDEFIJKL": { "3CEFHI": "E", "3EFGIJ": "J", "3BEFIJ": "B", "3ABCDF": "D", "3AEHIJ": "I", "3CDFGH": "F", "3DEIJL": "L", "3EHIJK": "K" } };
 function thirdAssignments(res) {
   const th = allThirds(res);
   if (th.length < 12) return null;
+  const best = th.slice(0, 8);
   const byGroup = {};
-  th.slice(0, 8).forEach(b => (byGroup[b.group] = b.team));
+  best.forEach(b => (byGroup[b.group] = b.team));
+  const combo = best.map(b => b.group).sort().join('');
+  const off = OFFICIAL_THIRDS[combo];
+  if (off) { const a = {}; for (const src in off) { if (byGroup[off[src]]) a[src] = byGroup[off[src]]; } if (Object.keys(a).length === 8) return a; }
   const slots = [];
   KO_MATCHES.forEach(r => r.matchups.forEach(mu => {
     [mu.t1, mu.t2].forEach(t => {
