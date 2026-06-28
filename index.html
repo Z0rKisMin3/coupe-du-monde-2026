@@ -1216,6 +1216,19 @@ async function sb(path,opts={}){
   const txt=await res.text();
   return txt?JSON.parse(txt):null;
 }
+// Récupère toutes les lignes d'une table en paginant par tranches de 1000 (limite serveur PostgREST)
+async function sbAll(path){
+  const PAGE=1000, sep=path.includes('?')?'&':'?';
+  let all=[],offset=0;
+  while(true){
+    const batch=await sb(`${path}${sep}limit=${PAGE}&offset=${offset}`);
+    if(!batch||!batch.length)break;
+    all=all.concat(batch);
+    if(batch.length<PAGE)break;
+    offset+=PAGE;
+  }
+  return all;
+}
 
 async function joinContest(){
   const inp=document.getElementById('pseudoInput');
@@ -1351,7 +1364,7 @@ async function renderLeaderboard(){
   try{
     [players,preds,results]=await Promise.all([
       sb('players?select=id,name'),
-      sb('predictions?select=player_id,match_key,s1,s2&limit=5000'),
+      sbAll('predictions?select=player_id,match_key,s1,s2'),
       sb('results?select=match_key,s1,s2')
     ]);
   }catch{
