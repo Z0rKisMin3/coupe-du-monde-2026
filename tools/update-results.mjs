@@ -123,12 +123,12 @@ function koResults(res) {
   const assign = thirdAssignments(res);
   KO_MATCHES.forEach(round => round.matchups.forEach(mu => {
     const r = res['ko_' + mu.id];
-    if (!r || r[0] === r[1]) return;
+    if (!r) return;
     const t1 = resolveTeam(mu.t1.src, res, winners, losers, assign);
     const t2 = resolveTeam(mu.t2.src, res, winners, losers, assign);
     if (t1.q && t2.q) {
-      winners[mu.id] = r[0] > r[1] ? t1.name : t2.name;
-      losers[mu.id] = r[0] > r[1] ? t2.name : t1.name;
+      let w = r[2]; if (!w) { if (r[0] > r[1]) w = 1; else if (r[1] > r[0]) w = 2; }
+      if (w) { winners[mu.id] = w === 1 ? t1.name : t2.name; losers[mu.id] = w === 1 ? t2.name : t1.name; }
     }
   }));
   return { winners, losers, assign };
@@ -136,11 +136,11 @@ function koResults(res) {
 
 async function loadState() {
   const [resultRows, matchRows] = await Promise.all([
-    sb('results?select=match_key,s1,s2'),
+    sb('results?select=match_key,s1,s2,winner'),
     sb('matches?select=match_key,lock_until')
   ]);
   const res = {};
-  resultRows.forEach(r => (res[r.match_key] = [r.s1, r.s2]));
+  resultRows.forEach(r => (res[r.match_key] = [r.s1, r.s2, r.winner]));
   const lock = {};
   matchRows.forEach(m => (lock[m.match_key] = new Date(m.lock_until)));
   return { res, lock };
