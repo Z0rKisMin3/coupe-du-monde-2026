@@ -149,6 +149,10 @@
   .pts-3{color:#10b981;background:#10b98118;border:1px solid #10b98144}
   .pts-1{color:#f59e0b;background:#f59e0b18;border:1px solid #f59e0b44}
   .pts-0{color:#ef4444;background:#ef444418;border:1px solid #ef444444}
+  .qual-pick{font-size:.66rem;color:var(--muted2);display:inline-flex;align-items:center;gap:4px;flex-wrap:wrap}
+  .qual-pick .qb{font-size:.66rem;font-weight:700;padding:2px 8px;border-radius:99px;border:1px solid var(--line);background:var(--bg2);color:var(--muted2);cursor:pointer;font-family:inherit}
+  .qual-pick .qb:hover{border-color:#10b98166}
+  .qual-pick .qb.on{background:#10b98122;border-color:var(--green);color:var(--green)}
   .live-tag{color:#f87171;background:#ef444415;border:1px solid #ef444455;padding:1px 8px;border-radius:99px;font-size:.63rem;font-weight:700;animation:livePulse 1.6s ease-in-out infinite}
   @keyframes livePulse{0%,100%{opacity:1}50%{opacity:.45}}
 
@@ -696,17 +700,25 @@ function getThirdAssignments(){
 // RÉSOLUTION PHASE FINALE
 // ═══════════════════════════════════════════
 
+// qualifié d'un match KO : 1 (équipe1) / 2 (équipe2) / null
+function winnerOf(key){return num(S[key+'w'])}
+
 function computeKoResults(){
   const koWinners={}, koLosers={};
   KO_MATCHES.forEach(day=>{
     day.matchups.forEach(m=>{
       const [s1,s2]=actual(getKoId(m.id));
-      if(s1!==null&&s2!==null&&s1!==s2){
+      if(s1!==null&&s2!==null){
         const r1=resolveTeam(m.t1.src,koWinners,koLosers);
         const r2=resolveTeam(m.t2.src,koWinners,koLosers);
         if(r1.qualified&&r2.qualified){
-          koWinners[m.id]=s1>s2?r1.name:r2.name;
-          koLosers[m.id]=s1>s2?r2.name:r1.name;
+          // qualifié : champ « winner » (prolongations/t.a.b.) sinon déduit du score 90 min
+          let w=winnerOf(getKoId(m.id));
+          if(!w){ if(s1>s2)w=1; else if(s2>s1)w=2; }
+          if(w){
+            koWinners[m.id]=w===1?r1.name:r2.name;
+            koLosers[m.id]=w===1?r2.name:r1.name;
+          }
         }
       }
     });
@@ -826,6 +838,15 @@ function matchRowHTML(mk, opts={}){
     else if(!matchOver(mk.key))tags+=`<span class="pred-tag" style="color:var(--muted);border-color:var(--line);background:var(--line2)">⏳ à venir</span>`;
     else if(!adminCode)tags+=`<span class="pred-tag" style="color:var(--muted);border-color:var(--line);background:var(--line2)">🔑 résultat encodé par l'organisateur</span>`;
   }
+  // phase finale : qualifié (important pour un nul à 90 min décidé en prolongation / t.a.b.)
+  if(mk.ko&&hasBoth(a)){
+    const w=winnerOf(mk.key);
+    if(!inPred&&adminCode&&a[0]===a[1]){
+      tags+=`<span class="qual-pick">Qualifié (prol./t.a.b.) : <button type="button" class="qb${w===1?' on':''}" data-qual="${mk.key}" data-w="1">${mk.t1}</button> <button type="button" class="qb${w===2?' on':''}" data-qual="${mk.key}" data-w="2">${mk.t2}</button></span>`;
+    } else if(w){
+      tags+=`<span class="pts-tag pts-3" style="background:#10b98114">✅ ${w===1?mk.t1:mk.t2} qualifié·e</span>`;
+    }
+  }
   const phase=opts.showPhase?`<span class="cal-phase">${mk.phase}</span>`:'';
 
   return `
@@ -925,7 +946,7 @@ function renderKnockout(){
   let html='';
 
   // rappel de la règle prolongations / tirs au but
-  html+=`<div class="ko-rule">⏱️ <strong>Règle :</strong> on retient le score <strong>après prolongations</strong>. Aux tirs au but → score de la prolongation <strong>+1 au qualifié</strong> (ex. 1–1 puis t.a.b. gagnés → 2–1). Pronostiquez un <strong>vainqueur</strong>, jamais un nul. <span class="ko-rule-more">Détails dans l'onglet ❓ Aide.</span></div>`;
+  html+=`<div class="ko-rule">⏱️ <strong>Règle :</strong> on parie sur le score <strong>à la fin des 90 minutes</strong> (sans prolongations ni tirs au but). Un <strong>nul est possible</strong> (ex. 1–1). Barème : exact = 3 pts, bon résultat = 1 pt. <span class="ko-rule-more">Détails dans l'onglet ❓ Aide.</span></div>`;
 
   // bannière champion
   const finalScore=actual(getKoId('FINAL'));
@@ -1243,8 +1264,13 @@ async function cloudPush(key,store){
     }else{
       if(!adminCode)return; // seuls les résultats de l'organisateur partent au serveur
       // écriture via la fonction set_result (valide le code côté serveur, ne le stocke jamais)
-      await sb('rpc/set_result',{method:'POST',
-        body:JSON.stringify({p_key:key,p_s1:pair[0],p_s2:pair[1],p_code:adminCode})});
+      const body={p_key:key,p_s1:pair[0],p_s2:pair[1],p_code:adminCode};
+      // phase finale : on joint le qualifié (déduit du score 90 min, sinon le choix manuel)
+      if(key.startsWith('ko_')){
+        let w=pair[0]>pair[1]?1:pair[1]>pair[0]?2:winnerOf(key);
+        if(w)body.p_winner=w;
+      }
+      await sb('rpc/set_result',{method:'POST',body:JSON.stringify(body)});
     }
     setCloudStatus(true);
   }catch(err){
@@ -1272,12 +1298,12 @@ async function syncNow(){
     if(ann&&ann[0]){announcement.body=ann[0].body;announcement.expires=ann[0].expires_at}
     // 1. résultats officiels : le serveur est la seule source de vérité
     //    (efface aussi les scores locaux qui n'existent pas côté serveur)
-    const results=await sb('results?select=match_key,s1,s2');
+    const results=await sb('results?select=match_key,s1,s2,winner');
     const serverKeys=new Set(results.map(r=>r.match_key));
     allMatchKeys().forEach(mk=>{
-      if(!serverKeys.has(mk.key)){delete S[mk.key];delete S[mk.key+'b']}
+      if(!serverKeys.has(mk.key)){delete S[mk.key];delete S[mk.key+'b'];delete S[mk.key+'w']}
     });
-    results.forEach(r=>{S[r.match_key]=String(r.s1);S[r.match_key+'b']=String(r.s2)});
+    results.forEach(r=>{S[r.match_key]=String(r.s1);S[r.match_key+'b']=String(r.s2);if(r.winner)S[r.match_key+'w']=String(r.winner);else delete S[r.match_key+'w']});
     if(player){
       // 2. envoi de mes pronostics locaux (matchs non joués uniquement)
       const played=new Set(results.map(r=>r.match_key));
@@ -1584,14 +1610,13 @@ const HELP_PRONOS=`
   <p>Votre pronostic est <strong>verrouillé 🔒 dès le coup d'envoi du match</strong> — impossible de le modifier en cours de match, pas de triche ! Retrouvez votre total de points dans l'onglet <strong>🔮 Mes pronostics</strong>.</p>`;
 
 const HELP_KO=`
-  <p>En phase finale, un match peut se prolonger. Le résultat retenu (celui qui compte pour les points) est <strong>le score à la fin du jeu, prolongations comprises</strong> :</p>
+  <p>En phase finale, on parie sur le <strong>score à la fin des 90 minutes</strong>, <strong>sans tenir compte des prolongations ni des tirs au but</strong>.</p>
   <ul>
-    <li>⏱️ <strong>Temps réglementaire</strong> (90 min) → ce score. Ex. <em>2–0</em>.</li>
-    <li>⏱️ <strong>Prolongation</strong> (120 min) → le score <strong>après prolongation</strong>. Ex. 1–1 puis 2–1 a.p. → on retient <strong>2–1</strong>.</li>
-    <li>🥅 <strong>Tirs au but</strong> → le score à la fin de la prolongation, <strong>+1 but au vainqueur de la séance</strong>. Ex. 1–1 puis l'Espagne gagne aux t.a.b. → on retient <strong>2–1 Espagne</strong>.</li>
+    <li>🤝 Un <strong>match nul à 90 min est un pronostic valable</strong> (ex. 1–1), même si le match se décide ensuite en prolongation ou aux tirs au but.</li>
+    <li>✅ Barème identique aux poules : score exact (à 90 min) = <strong>3 pts</strong>, bon résultat = <strong>1 pt</strong>.</li>
+    <li>🏆 Le <strong>qualifié</strong> (qui passe au tour suivant) est géré automatiquement par l'app et n'influence pas vos points.</li>
   </ul>
-  <p>👉 Donc pronostiquez le <strong>score final</strong> (prolongations incluses), et <strong>toujours un vainqueur</strong> (jamais un nul) pour un match à élimination directe.</p>
-  <div class="warn">🥅 Sur un match qui part aux tirs au but, le score exact (+3) est quasi impossible à deviner — visez surtout le <strong>bon qualifié</strong> (+1 point).</div>`;
+  <p>👉 Pronostiquez simplement le score que vous imaginez <strong>à la fin du temps réglementaire</strong>.</p>`;
 
 const HELP_SAUVEGARDE=`
   <p>Vos scores et pronostics sont enregistrés <strong>dans votre navigateur, sur votre ordinateur</strong> :</p>
@@ -1852,6 +1877,17 @@ document.addEventListener('input',e=>{
   saveScores();
   queueCloudPush(key,store==='pred'?'pred':'act'); // synchro concours en ligne
   renderAll(inp); // re-rendu avec restauration du focus
+});
+
+// sélecteur du qualifié (organisateur) pour un match KO nul à 90 min
+document.addEventListener('click',e=>{
+  const b=e.target.closest('.qb');
+  if(!b||!adminCode)return;
+  const key=b.dataset.qual, w=b.dataset.w;
+  S[key+'w']=w;
+  saveScores();
+  cloudPush(key,'act'); // renvoie le résultat avec le qualifié
+  renderAll();
 });
 
 function renderAll(focusedInput){
