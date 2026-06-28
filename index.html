@@ -1351,7 +1351,7 @@ async function renderLeaderboard(){
   try{
     [players,preds,results]=await Promise.all([
       sb('players?select=id,name'),
-      sb('predictions?select=player_id,match_key,s1,s2'),
+      sb('predictions?select=player_id,match_key,s1,s2&limit=5000'),
       sb('results?select=match_key,s1,s2')
     ]);
   }catch{
