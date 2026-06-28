@@ -648,14 +648,28 @@ function getAllThirds(){
 }
 function getBestThirdPlace(){return getAllThirds().slice(0,8)}
 
-// Attribution des 8 meilleurs 3es aux places du tableau : chaque équipe ne peut
-// occuper qu'UNE seule place (affectation par backtracking sur les groupes autorisés).
-// N'est calculée que lorsque les 12 groupes sont terminés (comme la FIFA).
+// Attribution des 8 meilleurs 3es aux places du tableau, selon la TABLE OFFICIELLE FIFA
+// (la combinaison des 8 groupes des 3es détermine qui joue qui). À défaut de combinaison
+// répertoriée, repli sur un placement valide par backtracking.
+// Clé = groupes des 8 meilleurs 3es triés ; valeur = {src de slot → lettre du groupe du 3e}.
+const OFFICIAL_THIRDS={
+  'BDEFIJKL':{'3CEFHI':'E','3EFGIJ':'J','3BEFIJ':'B','3ABCDF':'D','3AEHIJ':'I','3CDFGH':'F','3DEIJL':'L','3EHIJK':'K'}
+};
 let THIRD_ASSIGN=null; // {src '3ABCDF' → nom d'équipe}
 function getThirdAssignments(){
   if(getAllThirds().length<12)return null;
+  const best=getBestThirdPlace();
   const byGroup={};
-  getBestThirdPlace().forEach(b=>{byGroup[b.group]=b.team});
+  best.forEach(b=>{byGroup[b.group]=b.team});
+  // 1) table officielle FIFA pour cette combinaison
+  const combo=best.map(b=>b.group).sort().join('');
+  const off=OFFICIAL_THIRDS[combo];
+  if(off){
+    const a={};
+    for(const src in off){if(byGroup[off[src]])a[src]=byGroup[off[src]]}
+    if(Object.keys(a).length===8)return a;
+  }
+  // 2) repli : placement valide par backtracking (combinaison non répertoriée)
   const slots=[];
   KO_MATCHES.forEach(r=>r.matchups.forEach(mu=>{
     [mu.t1,mu.t2].forEach(t=>{
