@@ -217,6 +217,21 @@
   .third-table tr.in td{color:var(--green)}
   .third-table tr.out td{color:var(--muted)}
 
+  /* Suivi des pronostics */
+  .suivi-wrap{max-width:100%;overflow-x:auto;border:1px solid var(--line);border-radius:16px;background:linear-gradient(145deg,var(--card1),var(--card2))}
+  .suivi-table{border-collapse:collapse;font-size:.72rem;white-space:nowrap}
+  .suivi-table th,.suivi-table td{padding:5px 8px;text-align:center;border-bottom:1px solid var(--line2)}
+  .suivi-table thead th{color:var(--muted);font-weight:700;font-size:.66rem;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--bg2);z-index:1}
+  .suivi-table .col-player{text-align:left;position:sticky;left:0;background:var(--bg2);z-index:2;font-weight:700;padding-right:14px}
+  .suivi-table thead th.col-player{z-index:3}
+  .suivi-table .miss-chip{display:inline-block;margin-left:8px;padding:1px 8px;border-radius:99px;background:#f59e0b1e;color:var(--gold);font-size:.62rem;font-weight:700;white-space:nowrap}
+  .suivi-table .miss-chip.zero{background:#10b9811e;color:var(--green)}
+  .suivi-table .ok{color:var(--green);font-weight:700}
+  .suivi-table .no{color:var(--muted)}
+  .suivi-table tr.total td{font-weight:800;color:var(--gold);border-top:2px solid var(--line);border-bottom:none}
+  .suivi-table tr.total .col-player{background:var(--bg2)}
+  .suivi-legend{max-width:900px;margin:0 auto 14px;padding:10px 16px;font-size:.78rem;color:var(--muted2);background:#3b82f614;border:1px solid #3b82f633;border-radius:12px;text-align:center}
+
   /* Classement */
   .lead-header{display:flex;align-items:center;gap:10px;flex-wrap:wrap;max-width:720px;margin:0 auto 14px;font-size:.85rem;color:var(--muted2)}
   .lead-header .who{background:#8b5cf615;border:1px solid #8b5cf633;color:var(--purple);padding:6px 14px;border-radius:99px;font-weight:600}
@@ -367,6 +382,7 @@
   <div class="tab" data-tab="ko">🏆 Phase finale</div>
   <div class="tab" data-tab="pred">🔮 Mes pronostics</div>
   <div class="tab" data-tab="lead">🏅 Classement</div>
+  <div class="tab" data-tab="suivi">📝 Suivi</div>
   <div class="tab" data-tab="arch">📂 Archives</div>
   <div class="tab" data-tab="bel">🇧🇪 Belgique</div>
   <div class="tab" data-tab="stats">📊 Stats</div>
@@ -383,6 +399,7 @@
 <div id="view-stats" class="view"><div id="statsContainer"></div></div>
 <div id="view-help" class="view"><div id="helpContainer"></div></div>
 <div id="view-arch" class="view"><div id="archContainer"></div></div>
+<div id="view-suivi" class="view"><div id="suiviContainer"></div></div>
 
 <div class="modal-overlay" id="welcomeModal">
   <div class="modal">
@@ -1439,6 +1456,82 @@ async function renderLeaderboard(){
   renderChat();
 }
 
+// abréviation courte d'un match pour l'en-tête de colonne du tableau de Suivi
+function suiviShortLabel(mk){
+  if(!mk.ko){
+    const m=mk.key.match(/^g([A-L])_(\d)/);
+    return m?`${m[1]}${parseInt(m[2],10)+1}`:mk.key;
+  }
+  const id=mk.key.replace('ko_','');
+  if(id.startsWith('R32_'))return '32e-'+id.split('_')[1];
+  if(id.startsWith('R16_'))return '8e-'+id.split('_')[1];
+  if(id.startsWith('QF_'))return 'QF'+id.split('_')[1];
+  if(id.startsWith('SF_'))return 'SF'+id.split('_')[1];
+  if(id==='3RD')return '3e';
+  if(id==='FINAL')return 'FIN';
+  return id;
+}
+
+async function renderSuivi(){
+  const c=document.getElementById('suiviContainer');
+  if(!player){
+    c.innerHTML=`<div class="help-card" style="text-align:center;padding:32px">
+      <div style="font-size:2rem;margin-bottom:12px">📝</div>
+      <p>Rejoins le concours dans l'onglet <strong>🏅 Classement</strong> pour consulter le suivi des pronostics.</p>
+    </div>`;
+    return;
+  }
+  c.innerHTML='<div class="empty-state"><div class="big">⏳</div>Chargement du suivi…</div>';
+  let players,preds;
+  try{
+    [players,preds]=await Promise.all([
+      sb('players?select=id,name&order=name'),
+      sbAll('predictions?select=player_id,match_key')
+    ]);
+  }catch{
+    c.innerHTML='<div class="empty-state"><div class="big">⚠️</div>Impossible de joindre le serveur.<br>Vérifie ta connexion puis ré-ouvre cet onglet.</div>';
+    return;
+  }
+
+  const madeSet=new Set(preds.map(p=>p.player_id+'|'+p.match_key));
+  const keys=allMatchKeys();
+
+  let html=`<div class="lead-header" style="max-width:100%">
+    <span class="who">📝 Qui a pronostiqué ?</span>
+    <button onclick="renderSuivi()">🔄 Actualiser</button>
+  </div>`;
+  html+='<p class="suivi-legend">✅ = pronostic enregistré · <span class="no">—</span> = pas encore pronostiqué. Le score pronostiqué reste secret jusqu\'à la fin du match.</p>';
+
+  html+='<div class="suivi-wrap"><table class="suivi-table"><thead><tr><th class="col-player">Joueur</th>';
+  keys.forEach(mk=>{html+=`<th title="${mk.t1} – ${mk.t2} · ${mk.d}">${suiviShortLabel(mk)}</th>`});
+  html+='</tr></thead><tbody>';
+
+  players.forEach(pl=>{
+    let missing=0;
+    let row=`<tr><td class="col-player">${pl.name}</td>`;
+    keys.forEach(mk=>{
+      const has=madeSet.has(pl.id+'|'+mk.key);
+      if(!has)missing++;
+      row+=`<td class="${has?'ok':'no'}">${has?'✅':'—'}</td>`;
+    });
+    const chipCls=missing===0?'miss-chip zero':'miss-chip';
+    row=row.replace('</td>',`<span class="${chipCls}">${missing===0?'complet':missing+' manquant'+(missing>1?'s':'')}</span></td>`);
+    row+='</tr>';
+    html+=row;
+  });
+
+  // ligne total : combien de joueurs ont pronostiqué chaque match
+  html+=`<tr class="total"><td class="col-player">Total (/${players.length})</td>`;
+  keys.forEach(mk=>{
+    const n=players.filter(pl=>madeSet.has(pl.id+'|'+mk.key)).length;
+    html+=`<td>${n}</td>`;
+  });
+  html+='</tr>';
+
+  html+='</tbody></table></div>';
+  c.innerHTML=html;
+}
+
 async function renderArchives(){
   const c=document.getElementById('archContainer');
   if(!player){
@@ -1979,6 +2072,7 @@ function renderAll(focusedInput){
     case 'ko': renderKnockout(); break;
     case 'pred': renderPredictions(); break;
     case 'lead': renderLeaderboard(); break;
+    case 'suivi': renderSuivi(); break;
     case 'arch': renderArchives(); break;
     case 'bel': renderBelgium(); break;
     case 'stats': renderStatsView(); break;
